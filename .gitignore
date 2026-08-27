@@ -5,3 +5,6 @@ __pycache__/
 build/
 dist/
 *.egg-info/
+.pytest_cache/
+# Swift build products for the native helper in native/.
+.build/

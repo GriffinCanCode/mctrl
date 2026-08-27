@@ -1,11 +1,27 @@
-"""Synthetic mouse input via Quartz.
+"""Where an intent leaves Python.
 
-Two details are load-bearing.
+Two ways out, same interface.
+
+*Through the native helper*, when it is running. It owns the cursor, integrates
+motion at display rate, snaps to whatever is nearest, and draws the highlight --
+none of which can be done from here, because it needs a thread that is never
+behind the GIL and a hundred accessibility hit tests a second. This is the path
+that feels smooth, and it is the default.
+
+*Straight to Quartz*, when the helper is not available -- not built yet, refused
+permission, or crashed. Not a legacy path: it is the reason a missing Swift
+toolchain degrades the feel rather than breaking the app. It posts one event per
+camera frame, which is exactly as stepped as it sounds, and is why the helper
+exists.
+
+Two details are load-bearing on both paths.
 
 *Tagging.* Every event carries a user-data marker so the physical-input watcher
 can tell our own synthetic moves from the user's real ones. Without it the app
 would see its own cursor motion, decide a human grabbed the mouse, and suspend
-itself the instant it started working.
+itself the instant it started working. The helper stamps the same marker, which
+is why ``events.EVENT_MARKER`` and ``eventMarker`` in ``Cursor.swift`` have to
+agree.
 
 *Click chaining.* macOS decides what a double click is from the click-state field
 on the event, not from two clicks arriving close together. Real trackpads set it;
@@ -18,6 +34,7 @@ import time
 
 import Quartz
 
+from .bridge import Bridge
 from .events import create_source, post
 
 _BUTTON_EVENTS = {
@@ -77,16 +94,28 @@ def desktop_bounds() -> tuple[float, float, float, float]:
 
 
 class Mouse:
-    """Posts cursor, button and scroll events."""
+    """Posts cursor, button and scroll events, through the helper when it is up.
 
-    def __init__(self, double_click_ms: float = 400.0) -> None:
+    Drag state is tracked here regardless of which path is in use, because the
+    press and release that bracket it are still decided in Python -- the gaze arm
+    reads :attr:`dragging` to know it must not warp mid-drag.
+    """
+
+    def __init__(self, double_click_ms: float = 400.0, bridge: Bridge | None = None) -> None:
         self._source = create_source()
         self._double_click_ms = double_click_ms
+        self._bridge = bridge
         self._held: str | None = None
         self._last_click_at = 0.0
         self._last_click_point = (0.0, 0.0)
         self._click_run = 0
         self.refresh_bounds()
+
+    @property
+    def _native(self) -> Bridge | None:
+        """The helper, if it is there to take the intent."""
+        bridge = self._bridge
+        return bridge if bridge is not None and bridge.connected else None
 
     def refresh_bounds(self) -> None:
         """Re-read display geometry, for when a monitor is plugged in or unplugged."""
@@ -138,11 +167,22 @@ class Mouse:
         self._post(Quartz.CGEventCreateMouseEvent(self._source, event_type, (x, y), button))
 
     def move_by(self, dx: float, dy: float) -> None:
+        native = self._native
+        if native is not None:
+            # The helper accumulates this into a goal and walks the cursor there at
+            # display rate. Sending a delta rather than a destination is what lets
+            # it do that without ever reading the cursor back.
+            native.move_by(dx, dy)
+            return
         x, y = self.location()
         self._move_event(*self._clamp(x + dx, y + dy))
 
     def move_to_fraction(self, fx: float, fy: float) -> None:
         """Jump to a point given as fractions of the calibrated display, for gaze warps."""
+        native = self._native
+        if native is not None:
+            native.warp_to_fraction(fx, fy)
+            return
         left, top, _, _ = self._gaze_box
         width, height = self.gaze_size
         self._move_event(*self._clamp(left + fx * width, top + fy * height))
@@ -150,6 +190,13 @@ class Mouse:
     def click(self, button: str = "left") -> None:
         """Click, chaining into a double or triple click when repeated quickly."""
         if button not in _BUTTON_EVENTS:
+            return
+        native = self._native
+        if native is not None:
+            # Chaining is done on the far side, where the click's actual landing
+            # point is known: it resolves to the snapped target, not to wherever
+            # the cursor had drifted to.
+            native.click(button)
             return
         down, up, index = _BUTTON_EVENTS[button]
         x, y = self.location()
@@ -171,24 +218,35 @@ class Mouse:
     def press(self, button: str = "left") -> None:
         if button not in _BUTTON_EVENTS or self._held is not None:
             return
+        self._held = button
+        native = self._native
+        if native is not None:
+            native.press(button)
+            return
         down, _, index = _BUTTON_EVENTS[button]
         x, y = self.location()
         self._post(Quartz.CGEventCreateMouseEvent(self._source, down, (x, y), index))
-        self._held = button
 
     def release(self, button: str | None = None) -> None:
         """Let go of a held button. Safe to call when nothing is held."""
         held = self._held if button is None else button
+        self._held = None
         if held is None or held not in _BUTTON_EVENTS:
-            self._held = None
+            return
+        native = self._native
+        if native is not None:
+            native.release(held)
             return
         _, up, index = _BUTTON_EVENTS[held]
         x, y = self.location()
         self._post(Quartz.CGEventCreateMouseEvent(self._source, up, (x, y), index))
-        self._held = None
 
     def scroll(self, dx: float, dy: float) -> None:
         """Scroll by a pixel delta, following the hand as if it held the page."""
+        native = self._native
+        if native is not None:
+            native.scroll(dx, dy)
+            return
         # Pulling your hand down should drag the content down, which in wheel
         # terms is a positive vertical value; the camera's y axis grows downward,
         # hence the negation.

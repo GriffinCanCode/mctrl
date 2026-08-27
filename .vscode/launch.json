@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:mindcontrol}/native",
+            "name": "Debug mindcontrol-bridge (native)",
+            "program": "${workspaceFolder:mindcontrol}/native/.build/debug/mindcontrol-bridge",
+            "preLaunchTask": "swift: Build Debug mindcontrol-bridge (native)"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:mindcontrol}/native",
+            "name": "Release mindcontrol-bridge (native)",
+            "program": "${workspaceFolder:mindcontrol}/native/.build/release/mindcontrol-bridge",
+            "preLaunchTask": "swift: Build Release mindcontrol-bridge (native)"
+        }
+    ]
+}

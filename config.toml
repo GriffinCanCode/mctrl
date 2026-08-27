@@ -118,6 +118,77 @@ swipe_grace_ms = 600
 # Refractory period after any discrete gesture fires.
 gesture_cooldown_ms = 500
 
+[native]
+# The helper in native/ that actually drives the cursor. Build it with
+# 'mindcontrol bridge'. Turned off -- or simply not built -- events are posted
+# straight from Python instead: everything still works, but one cursor move per
+# camera frame is visibly stepped, and nothing snaps or highlights.
+enabled = true
+
+# --- motion ---
+# Seconds for the cursor to close most of the gap to where your hand is pointing.
+# This is the whole reason it feels smooth now: the camera has an opinion thirty
+# times a second and the screen can show a new position a hundred and twenty
+# times, so the gap is interpolated rather than jumped. Raise it for a heavier,
+# more damped cursor; lower it toward 0.02 for a sharper one that shows more of
+# the camera's own jitter.
+motion_time_constant = 0.045
+# Positions closer together than this are not worth an event.
+minimum_step_pixels = 0.35
+# Ceiling on cursor speed in pixels/sec, so a gaze warp across three monitors
+# still reads as travel rather than a teleport.
+maximum_speed = 26000.0
+
+# --- snapping ---
+snap_enabled = true
+# How far from a button, link or word its pull starts to be felt, in pixels.
+snap_radius = 96.0
+# Fraction of the remaining gap the pull leans across. Note that a click does not
+# depend on this: it resolves to the highlighted target exactly, so the pull only
+# has to get you close enough to see what you are about to hit.
+snap_strength = 0.75
+# Targets no bigger than this in both axes pull to their centre, which is what
+# makes a checkbox feel magnetic. Anything larger pulls only to its nearest edge,
+# so a big panel can be entered anywhere instead of yanking you to the middle.
+small_target_pixels = 72.0
+# Bonus the target you are already on keeps, so the highlight does not strobe
+# between two adjacent buttons when you hover the boundary. The same hysteresis
+# idea as pinch_close/pinch_open, in space instead of time.
+snap_stickiness = 1.4
+# How much to favour targets in the direction your hand is travelling. Where you
+# are heading is better evidence of what you meant than where you currently are.
+snap_heading_weight = 0.45
+# Aim at words inside text, not just at the paragraph containing them. Works
+# wherever the app answers the accessibility text APIs; Chromium and Electron
+# windows do not, and fall back to whole-element snapping.
+text_snap_enabled = true
+
+# --- probing ---
+# Milliseconds between "what is under this point" queries. Measured at 0.43 ms at
+# the median but 3.46 ms at the 95th percentile, which is why it runs on its own
+# thread and the cursor never waits for it. A full window tree walk, for
+# comparison, measured 4.2 seconds -- which is why nothing walks the tree.
+probe_interval_ms = 16.0
+# How far ahead along your direction of travel to look, in seconds. Probing where
+# the cursor is going means the target is already resolved when it arrives.
+probe_lookahead_s = 0.08
+# Give up on an app that will not answer this quickly. An app wedged on its own
+# main thread should cost one skipped probe, not a frozen cursor.
+probe_timeout_s = 0.05
+# Forget a target the probe has not seen for this long.
+target_lifetime_ms = 350.0
+
+# --- highlight ---
+overlay_enabled = true
+overlay_corner_radius = 6.0
+overlay_border_width = 2.0
+# Seconds for the highlight to glide to a new target. Core Animation runs this,
+# not us, which is why it stays smooth while the probe stutters.
+overlay_glide_s = 0.11
+# RGBA, 0-1.
+overlay_border_color = [0.36, 0.72, 1.0, 0.95]
+overlay_fill_color = [0.36, 0.72, 1.0, 0.14]
+
 [modes]
 # Touching the real mouse or keyboard suspends gesture output instantly.
 suspend_on_physical_input = true

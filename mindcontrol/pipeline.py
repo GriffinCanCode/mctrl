@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 
 from .capture import CameraBank, Frame
 from .config import GAZE_MODEL_PATH, Config
+from .control.bridge import Bridge
 from .control.keyboard import Keyboard
 from .control.modes import Mode, ModeManager
 from .control.mouse import Mouse
@@ -45,6 +46,9 @@ class PipelineStatus:
     gaze_ready: bool = False
     gaze_point: tuple[float, float] | None = None
     warps: int = 0
+    # Whether the native helper is driving. False means the fallback path is,
+    # which works but is neither smoothed nor snapped.
+    native: bool = False
     problems: list[str] = field(default_factory=list)
 
 
@@ -60,7 +64,8 @@ class Pipeline:
         self._on_status = on_status
 
         self.modes = ModeManager(cfg.modes)
-        self.mouse = Mouse(double_click_ms=cfg.gestures.double_click_ms)
+        self.bridge = Bridge(cfg.native, cfg.gestures.double_click_ms)
+        self.mouse = Mouse(double_click_ms=cfg.gestures.double_click_ms, bridge=self.bridge)
         self.keyboard = Keyboard(cfg.keys)
         self.engine = GestureEngine(cfg.pointer, cfg.gestures, cfg.tracking)
         self.fusion = HandFusion(cfg.tracking, cfg.gestures)
@@ -86,6 +91,12 @@ class Pipeline:
         self.modes.start()
         if self.modes.watcher_error:
             self.status.problems.append(self.modes.watcher_error)
+        # A missing helper is a downgrade, not a failure: the fallback path in
+        # `Mouse` still drives the cursor, just without smoothing or snapping.
+        if not self.bridge.start() and self.bridge.error:
+            self.status.problems.append(self.bridge.error)
+            print(f"[bridge] {self.bridge.error}")
+        self.status.native = self.bridge.connected
         self._open_cameras()
         self._stop.clear()
         self._thread = threading.Thread(target=self._run, name="pipeline", daemon=True)
@@ -99,6 +110,7 @@ class Pipeline:
         self._release_control()
         self._close_cameras()
         self.modes.stop()
+        self.bridge.stop()
 
     def pause(self) -> None:
         """Release the cameras so another process can use them, e.g. calibration."""
@@ -207,6 +219,10 @@ class Pipeline:
         engaged = self.modes.engaged
 
         events = self.engine.update([hand.features for hand in fused], now, dt, engaged)
+        # Before dispatching, not after: the helper decides whether to look for a
+        # target from this, and a click arriving first would resolve against a
+        # stale mode.
+        self._signal_mode(engaged)
         if engaged:
             self._apply_gaze(gaze, dt)
         self._dispatch(events)
@@ -286,6 +302,25 @@ class Pipeline:
             else:
                 self._run_binding(action.value)
 
+    def _signal_mode(self, engaged: bool) -> None:
+        """Keep the helper's idea of the current gesture current.
+
+        Sent every frame but transmitted only on change. Also where a helper that
+        died is picked back up, since this runs unconditionally and cheaply.
+        """
+        if not self.bridge.connected:
+            if self.bridge.reconnect():
+                self.status.native = True
+                print("[bridge] native helper reconnected")
+            else:
+                self.status.native = False
+                return
+        self.bridge.set_mode(
+            engaged=engaged,
+            pointing=self.engine.pointer_active,
+            sweeping=self.engine.sweeping,
+        )
+
     def _run_binding(self, gesture: str) -> None:
         action = self.cfg.bindings.get(gesture)
         if action is None:
@@ -306,6 +341,13 @@ class Pipeline:
             if event.action is Action.DRAG_END:
                 self.mouse.release(event.button)
         self.mouse.release()
+        # Belt and braces: the helper drops anything held on its own side too, so a
+        # button cannot survive a suspend even if Python's idea of what is held has
+        # drifted. A stuck mouse button is the one failure that makes the machine
+        # unusable, so it is worth saying twice.
+        if self.bridge.connected:
+            self.bridge.release_all()
+            self.bridge.set_mode(engaged=False, pointing=False, sweeping=False)
         self._fixation.reset()
         self._last_warp = None
 
@@ -326,6 +368,7 @@ class Pipeline:
         self.engine = GestureEngine(cfg.pointer, cfg.gestures, cfg.tracking)
         self.fusion = HandFusion(cfg.tracking, cfg.gestures)
         self.keyboard.update_bindings(cfg.keys)
+        self.bridge.apply_config(cfg.native, cfg.gestures.double_click_ms)
         self._gaze_filter = OneEuroFilter2D(cfg.gaze.filter_fc_min, cfg.gaze.filter_beta)
         self._fixation = FixationDetector(cfg.gaze.fixation_ms, cfg.gaze.fixation_radius)
         if cameras_changed and not self._paused.is_set():

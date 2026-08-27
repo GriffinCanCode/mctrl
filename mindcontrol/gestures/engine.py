@@ -108,6 +108,16 @@ class GestureEngine:
     def pointer_active(self) -> bool:
         return self.state in (State.POINTING, State.PINCHED, State.DRAGGING)
 
+    @property
+    def sweeping(self) -> bool:
+        """True while the hand is scrolling or sweeping rather than aiming.
+
+        A scroll or a swipe is not pointing at anything, so the snapping in the
+        native helper has to stand down for the duration -- a magnetic pull during
+        a sweep fights the hand instead of helping it.
+        """
+        return self.state in (State.SCROLLING, State.HOLDING_PALM)
+
     def status(self) -> str:
         hand = self._hand_label or "-"
         return f"{self.state.value} [{self._pose.value}] {hand}"

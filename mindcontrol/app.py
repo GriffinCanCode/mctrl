@@ -116,9 +116,12 @@ class MindControlApp:
             return status.problems[0][:60]
         cameras = ",".join(str(c) for c in status.cameras) or "none"
         gaze = "gaze on" if status.gaze_ready else "gaze uncalibrated"
+        # Worth showing: without the helper the cursor still works but is neither
+        # smoothed nor snapped, and that is exactly the complaint it exists to fix.
+        pointer = "snapping" if status.native else "raw pointer"
         return (
             f"{self.pipeline.modes.describe()} - {status.hands} hand(s) - "
-            f"cam {cameras} - {status.fps:.0f} fps - {gaze}"
+            f"cam {cameras} - {status.fps:.0f} fps - {gaze} - {pointer}"
         )
 
     def _on_engage(self, _sender) -> None:
@@ -257,6 +260,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
     player = subcommands.add_parser("replay", help="run a recorded session through the engine")
     player.add_argument("session", nargs="?", type=Path, help="session file (default: newest)")
+
+    helper = subcommands.add_parser(
+        "bridge", help="build the native helper that smooths and snaps the cursor"
+    )
+    helper.add_argument("--rebuild", action="store_true", help="rebuild even if a binary exists")
+    # Not --debug: that is already a top-level flag, and argparse would let the
+    # subcommand silently shadow it.
+    helper.add_argument("--dev", action="store_true", help="build unoptimised, for helper work")
     return parser
 
 
@@ -279,6 +290,11 @@ def main(argv: list[str] | None = None) -> int:
         from . import calibrate
 
         return calibrate.run(cfg)
+
+    if command == "bridge":
+        from .control import bridge
+
+        return bridge.run(rebuild=args.rebuild, debug=args.dev)
 
     if command == "record":
         from . import record

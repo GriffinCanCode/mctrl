@@ -99,6 +99,61 @@ class ModesConfig:
 
 
 @dataclass
+class NativeConfig:
+    """Settings for the native interaction helper in ``native/``.
+
+    Field names are the wire contract with the Swift side, which decodes this
+    dataclass verbatim from JSON. Renaming one here means renaming it in
+    ``native/Sources/Bridge/Tuning.swift`` too.
+    """
+
+    # Fall back to posting events straight from Python. Everything still works,
+    # but without smoothing, snapping or a highlight.
+    enabled: bool = True
+
+    # --- motion ---
+    # Seconds for the cursor to close most of the gap to where the hand points.
+    # The camera offers thirty positions a second and the display wants a hundred
+    # and twenty, so the difference has to be interpolated rather than stepped.
+    motion_time_constant: float = 0.045
+    minimum_step_pixels: float = 0.35
+    maximum_speed: float = 26000.0
+
+    # --- snapping ---
+    snap_enabled: bool = True
+    # Pixels from a target at which its pull starts to be felt.
+    snap_radius: float = 96.0
+    snap_strength: float = 0.75
+    # Targets no larger than this pull to their centre; bigger ones pull only to
+    # their nearest edge, so a large panel can be entered anywhere.
+    small_target_pixels: float = 72.0
+    # Bonus the current target keeps, so the highlight does not flicker between
+    # two adjacent controls. Hysteresis in space, like pinch_close/pinch_open in time.
+    snap_stickiness: float = 1.4
+    # How much to favour targets in the direction the hand is travelling.
+    snap_heading_weight: float = 0.45
+    # Snap to words inside text, not only to the text element as a whole.
+    text_snap_enabled: bool = True
+
+    # --- probing ---
+    # Milliseconds between accessibility hit tests. Measured at 0.43 ms median but
+    # 3.46 ms at p95, which is why it runs on its own thread.
+    probe_interval_ms: float = 16.0
+    probe_lookahead_s: float = 0.08
+    # Give up on an application that will not answer this quickly, in seconds.
+    probe_timeout_s: float = 0.05
+    target_lifetime_ms: float = 350.0
+
+    # --- highlight ---
+    overlay_enabled: bool = True
+    overlay_corner_radius: float = 6.0
+    overlay_border_width: float = 2.0
+    overlay_glide_s: float = 0.11
+    overlay_border_color: list[float] = field(default_factory=lambda: [0.36, 0.72, 1.0, 0.95])
+    overlay_fill_color: list[float] = field(default_factory=lambda: [0.36, 0.72, 1.0, 0.14])
+
+
+@dataclass
 class DebugConfig:
     overlay: bool = False
     stats_interval_s: float = 0.0
@@ -133,6 +188,7 @@ class Config:
     gaze: GazeConfig = field(default_factory=GazeConfig)
     gestures: GestureConfig = field(default_factory=GestureConfig)
     modes: ModesConfig = field(default_factory=ModesConfig)
+    native: NativeConfig = field(default_factory=NativeConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
     bindings: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_BINDINGS))
     keys: dict[str, KeyBinding] = field(default_factory=lambda: dict(DEFAULT_KEYS))
