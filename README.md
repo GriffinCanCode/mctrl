@@ -101,10 +101,43 @@ the app still runs — it posts events straight from Python instead — but you 
 one cursor move per camera frame and nothing snaps or highlights. The menu-bar
 status line ends in `snapping` or `raw pointer` so you can tell which you have.
 
+### As a Mac app
+
+To get an icon you can keep in the Dock instead of a shell you have to keep open:
+
+```bash
+make app        # build/MindControl.app, from its own CPython up
+make install    # copy it into /Applications
+make dmg        # dist/MindControl-<version>.dmg, to install it somewhere else
+```
+
+The first build takes a few minutes because it fetches a whole interpreter and
+every pinned wheel. Afterwards use `make update`, which reinstalls just this
+project and the helper into the existing bundle, syncs the handful of changed
+files into `/Applications` and relaunches — about fifteen seconds. `make help`
+lists the rest.
+
+The bundle carries its own CPython and the whole pinned dependency set, so once
+it is installed it reads nothing out of the checkout it was built from. The
+native helper is built into it and pointed at through `MINDCONTROL_BRIDGE`, and
+`config.toml` is copied into `~/.config/mindcontrol/` the first time it runs,
+after which that copy is yours to edit.
+
+It is a status-bar app, so opening it puts the glyph in the menu bar and nothing
+in the Dock. There is no terminal for it to complain to either, so everything it
+would have printed goes to `~/.local/state/mindcontrol/app.log`.
+
+The icon is drawn rather than drawn on: `packaging/icon.py` renders it with
+CoreGraphics at build time. It is deliberately full-bleed, because macOS 26
+rounds, masks and shadows an app icon itself and reads artwork that arrives with
+its own corners as a picture to inset into a plate. Pass `--plate` for the older
+look.
+
 ## Permissions
 
-Two grants are needed, both for whichever app launches the process (your
-terminal, if you start it from a shell):
+Two grants are needed, both for whichever app launches the process — your
+terminal, if you start it from a shell, and `MindControl.app` itself if you
+installed the bundle, which is the tidier of the two:
 
 **Camera** — macOS asks the first time. If you miss the prompt, System Settings
 > Privacy & Security > Camera.
@@ -121,6 +154,34 @@ which a grant made to `.venv/bin/python` does not. The helper also uses it for a
 second purpose — asking the window server what is on screen, which is how it
 knows what to highlight. Without it, motion and clicks still work and snapping
 silently does not, so it says so on startup too.
+
+`make permissions` opens both panes. Installed as a bundle there is only one
+entry to enable, `MindControl`: the helper is spawned by the app and lives
+inside it, so macOS holds the app responsible for what it asks for and the grant
+covers both. Running from a checkout is where the helper needs its own entry,
+because there the responsible process is your terminal.
+
+### Keeping the grants across updates
+
+An ad-hoc signature — the default, because it needs nothing set up — pins the
+bundle's designated requirement to a hash of its own contents:
+
+```
+$ codesign -d -r- /Applications/MindControl.app
+designated => cdhash H"e3bbe92e…"
+```
+
+Every update changes that hash, so macOS sees a different application, asks for
+the camera again and quietly stops honouring the Accessibility entry until you
+remove it and add it back. Signing with a certificate instead pins the
+requirement to the certificate, which does not change:
+
+1. Keychain Access > Certificate Assistant > Create a Certificate…
+2. Name it `MindControl Self-Signed`, identity type **Self Signed Root**,
+   certificate type **Code Signing**.
+3. Build with it once: `SIGN_IDENTITY="MindControl Self-Signed" make app install`
+
+Grant the two permissions to that build and later `make update`s keep them.
 
 ## Running
 
