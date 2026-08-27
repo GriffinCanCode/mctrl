@@ -1,0 +1,333 @@
+"""The processing loop.
+
+Runs on a worker thread so the menu bar keeps its own main thread, and does the
+same five things every frame: read cameras, find hands and eyes, merge cameras,
+ask the gesture engine what that means, and post the resulting events.
+
+Gaze and hands are combined here rather than in either tracker, because the
+useful rule is a relationship between them: gaze may only move the cursor while
+the hand is holding still. Eyes are good at crossing a screen and bad at holding
+a target; hands are the reverse. So gaze throws the cursor into the right region
+and the hand does the last inch, and gaze stops interfering the moment the hand
+starts working.
+"""
+
+from __future__ import annotations
+
+import threading
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+
+from .capture import CameraBank, Frame
+from .config import GAZE_MODEL_PATH, Config
+from .control.keyboard import Keyboard
+from .control.modes import Mode, ModeManager
+from .control.mouse import Mouse
+from .filters import OneEuroFilter2D
+from .fusion import FusedHand, HandFusion, Observation, fuse_gaze
+from .gestures.engine import Action, GestureEngine, GestureEvent
+from .logs import muffled
+from .tracking.gaze import FixationDetector, GazeModel, GazeObservation, GazeTracker
+from .tracking.hands import HandTracker
+
+
+@dataclass
+class PipelineStatus:
+    """Snapshot for the menu bar and the debug overlay."""
+
+    fps: float = 0.0
+    mode: str = "off"
+    gesture: str = "idle"
+    hands: int = 0
+    cameras: tuple[int, ...] = ()
+    merged: bool = False
+    gaze_ready: bool = False
+    gaze_point: tuple[float, float] | None = None
+    warps: int = 0
+    problems: list[str] = field(default_factory=list)
+
+
+class Pipeline:
+    """Owns the cameras, the models, and the frame loop."""
+
+    def __init__(
+        self,
+        cfg: Config,
+        on_status: Callable[[PipelineStatus], None] | None = None,
+    ) -> None:
+        self.cfg = cfg
+        self._on_status = on_status
+
+        self.modes = ModeManager(cfg.modes)
+        self.mouse = Mouse(double_click_ms=cfg.gestures.double_click_ms)
+        self.keyboard = Keyboard(cfg.keys)
+        self.engine = GestureEngine(cfg.pointer, cfg.gestures, cfg.tracking)
+        self.fusion = HandFusion(cfg.tracking, cfg.gestures)
+
+        self._bank: CameraBank | None = None
+        self._hand_trackers: dict[int, HandTracker] = {}
+        self._gaze_tracker: GazeTracker | None = None
+        self.gaze_model = GazeModel.load(GAZE_MODEL_PATH)
+        self._gaze_filter = OneEuroFilter2D(cfg.gaze.filter_fc_min, cfg.gaze.filter_beta)
+        self._fixation = FixationDetector(cfg.gaze.fixation_ms, cfg.gaze.fixation_radius)
+        self._last_warp: tuple[float, float] | None = None
+
+        self._thread: threading.Thread | None = None
+        self._stop = threading.Event()
+        self._paused = threading.Event()
+        self._seen: dict[int, int] = {}
+        self.status = PipelineStatus(mode=self.modes.describe())
+        self.frame_hook: Callable[[Frame, list[FusedHand], PipelineStatus], None] | None = None
+
+    # ----------------------------------------------------------------- lifecycle
+
+    def start(self) -> None:
+        self.modes.start()
+        if self.modes.watcher_error:
+            self.status.problems.append(self.modes.watcher_error)
+        self._open_cameras()
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, name="pipeline", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+            self._thread = None
+        self._release_control()
+        self._close_cameras()
+        self.modes.stop()
+
+    def pause(self) -> None:
+        """Release the cameras so another process can use them, e.g. calibration."""
+        self._paused.set()
+        self._release_control()
+        self._close_cameras()
+
+    def resume(self) -> None:
+        """Reopen cameras and pick up a calibration written while paused."""
+        self.gaze_model = GazeModel.load(GAZE_MODEL_PATH)
+        self._open_cameras()
+        self.engine.rebase()
+        self.fusion.reset()
+        self._paused.clear()
+
+    def _open_cameras(self) -> None:
+        self._bank = CameraBank(self.cfg.cameras)
+        problems = self._bank.start()
+        self.status.problems = list(problems)
+        if not len(self._bank):
+            self.status.problems.append("no cameras available")
+            return
+        mirrored = self.cfg.cameras.mirror
+        # Model construction is where MediaPipe does its logging, and it happens
+        # again on every resume after a calibration, so it is worth muffling.
+        with muffled():
+            self._hand_trackers = {
+                camera_id: HandTracker(self.cfg.tracking, self.cfg.gestures, mirrored)
+                for camera_id in self._bank.workers
+            }
+            if self.cfg.tracking.face_enabled:
+                self._gaze_tracker = GazeTracker(self.cfg.tracking)
+        self._seen.clear()
+
+    def _close_cameras(self) -> None:
+        for tracker in self._hand_trackers.values():
+            tracker.close()
+        self._hand_trackers.clear()
+        if self._gaze_tracker is not None:
+            self._gaze_tracker.close()
+            self._gaze_tracker = None
+        if self._bank is not None:
+            self._bank.stop()
+            self._bank = None
+
+    # ---------------------------------------------------------------------- loop
+
+    def _run(self) -> None:
+        previous = time.monotonic()
+        smoothed_fps = 0.0
+        while not self._stop.is_set():
+            if self._paused.is_set() or self._bank is None:
+                time.sleep(0.05)
+                continue
+
+            frames = self._fresh_frames()
+            if not frames:
+                time.sleep(0.005)
+                continue
+
+            now = time.monotonic()
+            dt = max(now - previous, 1e-4)
+            previous = now
+            smoothed_fps = 0.9 * smoothed_fps + 0.1 * (1.0 / dt) if smoothed_fps else 1.0 / dt
+
+            self._process(frames, now, dt)
+            self.status.fps = smoothed_fps
+            self.status.mode = self.modes.describe()
+            self.status.gesture = self.engine.status()
+            if self._on_status is not None:
+                self._on_status(self.status)
+
+    def _fresh_frames(self) -> dict[int, Frame]:
+        """Newest unprocessed frame per camera.
+
+        A camera that has not produced a new image is skipped rather than
+        reprocessed, which keeps a slow camera from throttling a fast one.
+        """
+        assert self._bank is not None
+        fresh: dict[int, Frame] = {}
+        for camera_id, frame in self._bank.latest().items():
+            if self._seen.get(camera_id) == frame.sequence:
+                continue
+            self._seen[camera_id] = frame.sequence
+            fresh[camera_id] = frame
+        return fresh
+
+    def _process(self, frames: dict[int, Frame], now: float, dt: float) -> None:
+        assert self._bank is not None
+        newest_ms = max(frame.timestamp_ms for frame in frames.values())
+
+        observations = [
+            Observation(
+                camera_id=camera_id,
+                hands=self._hand_trackers[camera_id].process(frame),
+                age_ms=float(newest_ms - frame.timestamp_ms),
+            )
+            for camera_id, frame in frames.items()
+            if camera_id in self._hand_trackers
+        ]
+        fused = self.fusion.fuse(observations)
+        if any(hand.rebased for hand in fused):
+            self.engine.rebase()
+
+        gaze = self._read_gaze(frames)
+        engaged = self.modes.engaged
+
+        events = self.engine.update([hand.features for hand in fused], now, dt, engaged)
+        if engaged:
+            self._apply_gaze(gaze, dt)
+        self._dispatch(events)
+
+        self.status.hands = len(fused)
+        self.status.cameras = tuple(sorted(frames))
+        self.status.merged = any(hand.merged for hand in fused)
+        self.status.gaze_ready = self.gaze_model.ready
+
+        if self.frame_hook is not None:
+            primary = frames.get(self._bank.primary_id) or next(iter(frames.values()))
+            self.frame_hook(primary, fused, self.status)
+
+    def _read_gaze(self, frames: dict[int, Frame]) -> GazeObservation:
+        """Run the face model on the gaze camera only; it is the expensive one."""
+        assert self._bank is not None
+        if self._gaze_tracker is None:
+            return GazeObservation(present=False)
+        primary_id = self._bank.primary_id
+        frame = frames.get(primary_id)
+        if frame is None:
+            return GazeObservation(present=False)
+        return fuse_gaze({primary_id: self._gaze_tracker.process(frame)}, primary_id)
+
+    # ------------------------------------------------------------------- gaze arm
+
+    def _apply_gaze(self, gaze: GazeObservation, dt: float) -> None:
+        """Warp the cursor to a settled gaze target, when the hand is not busy."""
+        cfg = self.cfg.gaze
+        if self.cfg.pointer.mode == "hands" or not self.gaze_model.ready or not gaze.usable:
+            return
+        if gaze.openness < cfg.blink_ear:
+            self._fixation.reset()
+            return
+        # The hand always outranks the eyes. Mid-drag, mid-scroll, or simply while
+        # the hand is moving, a warp would fight the user.
+        if self.mouse.dragging or self.engine.hand_speed > cfg.hand_quiet_speed:
+            self._fixation.reset()
+            return
+
+        assert gaze.features is not None
+        raw_x, raw_y = self.gaze_model.predict(gaze.features)
+        point = self._gaze_filter(raw_x, raw_y, dt)
+        self.status.gaze_point = point
+
+        settled = self._fixation.update(*point)
+        if settled is None:
+            return
+        # Only make the big jumps. Small corrections belong to the hand, and
+        # warping for them would feel like the cursor twitching under you.
+        if self._last_warp is not None:
+            moved = max(abs(settled[0] - self._last_warp[0]), abs(settled[1] - self._last_warp[1]))
+            if moved < cfg.warp_min_distance:
+                return
+        self._last_warp = settled
+        self.mouse.move_to_fraction(*settled)
+        self.status.warps += 1
+        self._fixation.reset()
+
+    # --------------------------------------------------------------- dispatching
+
+    def _dispatch(self, events: list[GestureEvent]) -> None:
+        for event in events:
+            action = event.action
+            if action is Action.ENGAGE_TOGGLE:
+                self._toggle_engage()
+            elif action in (Action.POINTER_MOVE, Action.DRAG_MOVE):
+                self.mouse.move_by(event.dx, event.dy)
+            elif action is Action.CLICK:
+                self.mouse.click(event.button)
+            elif action is Action.DRAG_START:
+                self.mouse.press(event.button)
+            elif action is Action.DRAG_END:
+                self.mouse.release(event.button)
+            elif action is Action.SCROLL:
+                self.mouse.scroll(event.dx, event.dy)
+            else:
+                self._run_binding(action.value)
+
+    def _run_binding(self, gesture: str) -> None:
+        action = self.cfg.bindings.get(gesture)
+        if action is None:
+            return
+        self.keyboard.run_action(action)
+
+    def _toggle_engage(self) -> None:
+        mode = self.modes.toggle()
+        if mode is Mode.OFF:
+            self._release_control()
+        else:
+            self.engine.rebase()
+            self.mouse.refresh_bounds()
+
+    def _release_control(self) -> None:
+        """Drop any held button and clear motion state."""
+        for event in self.engine.release():
+            if event.action is Action.DRAG_END:
+                self.mouse.release(event.button)
+        self.mouse.release()
+        self._fixation.reset()
+        self._last_warp = None
+
+    # -------------------------------------------------------------------- config
+
+    def apply_config(self, cfg: Config) -> None:
+        """Adopt an edited config without dropping the current session.
+
+        Camera changes need a restart, since a device list change means opening
+        different hardware; everything else is re-read in place.
+        """
+        cameras_changed = (
+            cfg.cameras.devices != self.cfg.cameras.devices
+            or cfg.cameras.mirror != self.cfg.cameras.mirror
+            or cfg.cameras.primary_gaze != self.cfg.cameras.primary_gaze
+        )
+        self.cfg = cfg
+        self.engine = GestureEngine(cfg.pointer, cfg.gestures, cfg.tracking)
+        self.fusion = HandFusion(cfg.tracking, cfg.gestures)
+        self.keyboard.update_bindings(cfg.keys)
+        self._gaze_filter = OneEuroFilter2D(cfg.gaze.filter_fc_min, cfg.gaze.filter_beta)
+        self._fixation = FixationDetector(cfg.gaze.fixation_ms, cfg.gaze.fixation_radius)
+        if cameras_changed and not self._paused.is_set():
+            self._close_cameras()
+            self._open_cameras()
