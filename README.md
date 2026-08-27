@@ -135,7 +135,7 @@ look.
 
 ## Permissions
 
-Two grants are needed, both for whichever app launches the process — your
+Three grants are needed, all for whichever app launches the process — your
 terminal, if you start it from a shell, and `MindControl.app` itself if you
 installed the bundle, which is the tidier of the two:
 
@@ -147,6 +147,11 @@ real mouse. System Settings > Privacy & Security > Accessibility. Without it the
 app runs and tracks your hands perfectly while silently failing to move
 anything, so it says so loudly at startup.
 
+**Menu Bar** — macOS 26 hosts every third-party status item through Control
+Center. System Settings > Menu Bar > Allow in the Menu Bar. Without it the
+process is running and there is nothing to click. If MindControl is not in that
+list, the bundle never registered; rebuild with `make app`.
+
 The native helper needs the same grant **in its own right**, because macOS
 attaches the permission to a binary rather than to a project. That is a feature
 here: granted to `mindcontrol-bridge` it survives rebuilding your virtualenv,
@@ -155,7 +160,7 @@ second purpose — asking the window server what is on screen, which is how it
 knows what to highlight. Without it, motion and clicks still work and snapping
 silently does not, so it says so on startup too.
 
-`make permissions` opens both panes. Installed as a bundle there is only one
+`make permissions` opens those panes. Installed as a bundle there is only one
 entry to enable, `MindControl`: the helper is spawned by the app and lives
 inside it, so macOS holds the app responsible for what it asks for and the grant
 covers both. Running from a checkout is where the helper needs its own entry,

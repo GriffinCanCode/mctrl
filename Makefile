@@ -36,6 +36,7 @@ refresh: | $(APP) ## rebuild only this project and the native helper into the bu
 	else \
 		echo "  helper unchanged: nothing new built"; \
 	fi
+	@packaging/launcher.sh $(APP)
 	@codesign --force --deep --sign '$(SIGN)' $(APP) 2>/dev/null \
 		|| echo "  could not sign as '$(SIGN)'"
 	@echo "refreshed $(APP)"
@@ -67,10 +68,12 @@ restart: stop run ## bounce it
 logs: ## follow what the app would have printed to a terminal
 	@tail -f -n 40 $(LOG)
 
-permissions: ## open the two Privacy panes the app needs
+permissions: ## open the Privacy and Menu Bar panes the app needs
 	@open 'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera'
 	@sleep 1
 	@open 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'
+	@sleep 1
+	@open 'x-apple.systempreferences:com.apple.ControlCenter-Settings.extension'
 
 lint: ## ruff and shellcheck
 	uvx ruff check .

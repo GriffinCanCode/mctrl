@@ -65,6 +65,9 @@ PY="$RES/python/bin/python3"
 # uv marks its managed interpreters PEP 668 externally-managed so nobody installs
 # into the shared copy. This one is private to the bundle, which is the whole point.
 rm -f "$RES/python/lib/python3.12/EXTERNALLY-MANAGED"
+# clang records the dylib's LC_ID; point that at @rpath so the launcher does not
+# bake in the path of the uv store copy this was duplicated from.
+install_name_tool -id @rpath/libpython3.12.dylib "$RES/python/lib/libpython3.12.dylib"
 
 say "installing pinned dependencies"
 uv export --no-dev --no-emit-project --format requirements-txt -o "$BUILD/requirements.txt" >/dev/null
@@ -95,33 +98,8 @@ fi
 
 # ------------------------------------------------------------------------ launcher
 
-cat > "$CONTENTS/MacOS/MindControl" <<'LAUNCH'
-#!/bin/sh
-# Bundle entry point. Finder gives a launched app no working directory and no
-# terminal, so this establishes both before handing over to the app itself.
-set -eu
-here=$(cd "$(dirname "$0")" && pwd)
-res="$here/../Resources"
-config="$HOME/.config/mindcontrol"
-state="$HOME/.local/state/mindcontrol"
-mkdir -p "$config" "$state"
-
-# First run gets the shipped defaults; after that the file is the user's.
-[ -f "$config/config.toml" ] || cp "$res/config.toml" "$config/config.toml"
-
-[ -x "$here/mindcontrol-bridge" ] && export MINDCONTROL_BRIDGE="$here/mindcontrol-bridge"
-export PYTHONDONTWRITEBYTECODE=1
-
-log="$state/app.log"
-# Keep the log from growing without bound across launches.
-[ -f "$log" ] && [ "$(wc -c <"$log")" -gt 4194304 ] && : > "$log"
-{ echo; echo "=== $(date '+%Y-%m-%d %H:%M:%S') launch ==="; } >> "$log"
-
-# config.toml is looked up in the working directory first, so start there.
-cd "$config"
-exec "$res/python/bin/python3" -m mindcontrol "$@" >> "$log" 2>&1
-LAUNCH
-chmod +x "$CONTENTS/MacOS/MindControl"
+say "compiling the bundle executable"
+"$ROOT/packaging/launcher.sh" "$APP"
 
 # --------------------------------------------------------------------------- sign
 

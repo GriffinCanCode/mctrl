@@ -26,6 +26,40 @@ from .pipeline import Pipeline, PipelineStatus
 # Status-bar glyphs. Text rather than an icon file keeps the app one directory.
 GLYPHS = {Mode.ACTIVE: "\u25c9", Mode.SUSPENDED: "\u25d0", Mode.OFF: "\u25cb"}
 
+# Names the menu bar slot so macOS remembers it across launches. Unnamed items
+# get a fresh leftmost slot every time, and on a notched display with a full
+# menu bar that slot is *under the notch*: hosted, on level 25, and invisible.
+STATUS_ITEM_NAME = "MindControl"
+
+
+def camera_state(prompt: bool = True) -> str:
+    """Camera authorisation, as one of ``ok``, ``waiting`` or ``refused``.
+
+    OpenCV's AVFoundation backend asks for access itself and then fails the same
+    frame if the answer is not already yes, so nothing may open a camera until
+    this says ``ok``. The dialog is answered by a human, which takes many frames,
+    hence ``waiting`` rather than a second attempt.
+    """
+    try:
+        from AVFoundation import (
+            AVAuthorizationStatusAuthorized,
+            AVAuthorizationStatusNotDetermined,
+            AVCaptureDevice,
+            AVMediaTypeVideo,
+        )
+    except ImportError:
+        return "ok"
+    status = AVCaptureDevice.authorizationStatusForMediaType_(AVMediaTypeVideo)
+    if status == AVAuthorizationStatusAuthorized:
+        return "ok"
+    if status != AVAuthorizationStatusNotDetermined:
+        return "refused"
+    if prompt:
+        AVCaptureDevice.requestAccessForMediaType_completionHandler_(
+            AVMediaTypeVideo, lambda _granted: None
+        )
+    return "waiting"
+
 
 def check_accessibility(prompt: bool = True) -> bool:
     """Report whether we may post input events, prompting once if not.
@@ -60,7 +94,7 @@ class MindControlApp:
         self.view = DebugView()
         self._calibrating = False
 
-        self.app = rumps.App("mindcontrol", title=GLYPHS[Mode.OFF], quit_button=None)
+        self.app = rumps.App("MindControl", title=GLYPHS[Mode.OFF], quit_button=None)
         self._status_item = rumps.MenuItem("Starting...")
         self._engage_item = rumps.MenuItem("Engage hands", callback=self._on_engage)
         self._overlay_item = rumps.MenuItem("Show overlay", callback=self._on_overlay)
@@ -78,16 +112,61 @@ class MindControlApp:
             rumps.MenuItem("Quit", callback=self._on_quit),
         ]
         self._timer = rumps.Timer(self._on_tick, 0.5)
+        self._booted = False
+        self._camera_prompted = False
 
     # ----------------------------------------------------------------- lifecycle
 
     def run(self) -> None:
+        # rumps creates the status item, then the run loop. Cameras, models and
+        # the Accessibility prompt wait until the first tick so Control Center
+        # has a hosted glyph before any modal appears in front of nothing.
+        self._rumps.events.before_start.register(self._pin_status_item)
+        self._timer.start()
+        self.app.run()
+
+    def _pin_status_item(self) -> None:
+        """Name the menu bar slot, and seed it on the right the first time.
+
+        rumps creates the item unnamed, so this runs from ``before_start``, which
+        is the first moment it exists. Naming it there still moves it. The
+        position is only seeded when nothing is stored, so a later Cmd-drag is
+        remembered instead of being overwritten on every launch.
+        """
+        from Foundation import NSUserDefaults
+
+        defaults = NSUserDefaults.standardUserDefaults()
+        key = f"NSStatusItem Preferred Position {STATUS_ITEM_NAME}"
+        if defaults.objectForKey_(key) is None:
+            # Measured from the right edge, so zero is beside Control Center --
+            # the one place a new item cannot land behind the notch.
+            defaults.setObject_forKey_(0, key)
+        item = getattr(self.app._nsapp, "nsstatusitem", None)
+        if item is not None:
+            item.setAutosaveName_(STATUS_ITEM_NAME)
+
+    def _boot(self) -> bool:
+        camera = camera_state(prompt=not self._camera_prompted)
+        self._camera_prompted = True
+        if camera == "waiting":
+            self._status_item.title = "Waiting for camera permission..."
+            return False
+        if camera == "refused":
+            print(
+                "[app] Camera access was refused, so there is nothing to track.\n"
+                "      System Settings > Privacy & Security > Camera, then start it again."
+            )
+        if not check_accessibility():
+            print(
+                "[app] Accessibility permission is required to move the cursor.\n"
+                "      System Settings > Privacy & Security > Accessibility, then "
+                "enable the app running this process and start it again."
+            )
         self.pipeline.frame_hook = self._on_frame
         self.pipeline.start()
         if self.cfg.debug.overlay:
             self.view.open()
-        self._timer.start()
-        self.app.run()
+        return True
 
     def _shutdown(self) -> None:
         self._timer.stop()
@@ -102,6 +181,10 @@ class MindControlApp:
             self.view.push(render(frame, hands, status, status.gaze_point))
 
     def _on_tick(self, _timer) -> None:
+        if not self._booted:
+            if not self._boot():
+                return
+            self._booted = True
         status = self.pipeline.status
         mode = self.pipeline.modes.mode
         self.app.title = GLYPHS[mode]
@@ -324,15 +407,22 @@ def main(argv: list[str] | None = None) -> int:
 
         return replay.run(session.Session.load(chosen), cfg)
 
-    if not check_accessibility():
-        print(
-            "[app] Accessibility permission is required to move the cursor.\n"
-            "      System Settings > Privacy & Security > Accessibility, then "
-            "enable the app running this process and start it again."
-        )
-
     if args.debug:
+        if not check_accessibility():
+            print(
+                "[app] Accessibility permission is required to move the cursor.\n"
+                "      System Settings > Privacy & Security > Accessibility, then "
+                "enable the app running this process and start it again."
+            )
         return run_headless(cfg, overlay=not args.no_overlay)
+
+    try:
+        from Foundation import NSBundle
+
+        ident = NSBundle.mainBundle().bundleIdentifier()
+    except Exception:
+        ident = None
+    print(f"[app] bundle {ident or 'none'}", flush=True)
 
     MindControlApp(cfg).run()
     return 0
