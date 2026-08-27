@@ -177,16 +177,31 @@ designated => cdhash H"e3bbe92e…"
 ```
 
 Every update changes that hash, so macOS sees a different application, asks for
-the camera again and quietly stops honouring the Accessibility entry until you
-remove it and add it back. Signing with a certificate instead pins the
-requirement to the certificate, which does not change:
+the camera again and quietly stops honouring the Accessibility entry — while
+still showing its switch as on, because the entry belongs to the copy you built
+last time. That failure is worth recognising: the app runs, tracks your hands,
+and moves nothing, which looks like a bug in the tracking and is a signature.
 
-1. Keychain Access > Certificate Assistant > Create a Certificate…
-2. Name it `MindControl Self-Signed`, identity type **Self Signed Root**,
-   certificate type **Code Signing**.
-3. Build with it once: `SIGN_IDENTITY="MindControl Self-Signed" make app install`
+Two copies of the bundle do the same thing to each other. `build/MindControl.app`
+and `/Applications/MindControl.app` are two applications with one identifier, so
+grant the one you run, which `make run` and `make update` take to be the
+installed one.
 
-Grant the two permissions to that build and later `make update`s keep them.
+Signing with a certificate pins the requirement to the certificate instead, which
+does not change. Any code-signing certificate on your keychain is found and used
+without being asked for:
+
+```
+$ packaging/identity.sh
+Developer ID Application: …
+```
+
+With none, builds are ad-hoc and the grants are given again each time.
+`SIGN_IDENTITY` overrides the choice, and `SIGN_IDENTITY=-` forces ad-hoc. If you
+have no certificate, Keychain Access > Certificate Assistant > Create a
+Certificate… makes one: identity type **Self Signed Root**, certificate type
+**Code Signing**. Grant the three permissions once to a build signed that way and
+later `make update`s keep them.
 
 ## Running
 

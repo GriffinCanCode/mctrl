@@ -4,15 +4,16 @@
 #   make update    push this project into the installed app (seconds)
 #   make dmg       cut the installer
 #
-# Set SIGN_IDENTITY to a code-signing certificate to keep the Camera and
-# Accessibility grants across updates; see `make help` and packaging/build_app.sh.
+# A certificate on the keychain is used if there is one, which is what keeps the
+# Camera, Accessibility and Menu Bar grants across builds; SIGN_IDENTITY overrides
+# it, with "-" forcing ad-hoc. See packaging/identity.sh for why that matters.
 
 APP       := build/MindControl.app
 INSTALLED := /Applications/MindControl.app
 PY        := $(APP)/Contents/Resources/python/bin/python3
 BRIDGE    := native/.build/release/mindcontrol-bridge
 LOG       := $(HOME)/.local/state/mindcontrol/app.log
-SIGN      := $(if $(SIGN_IDENTITY),$(SIGN_IDENTITY),-)
+SIGN      := $(shell packaging/identity.sh)
 
 .DEFAULT_GOAL := help
 .PHONY: help app icon refresh install update dmg run stop restart logs permissions lint test clean uninstall

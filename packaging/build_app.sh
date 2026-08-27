@@ -103,16 +103,11 @@ say "compiling the bundle executable"
 
 # --------------------------------------------------------------------------- sign
 
-say "signing as ${SIGN_IDENTITY:-ad-hoc}"
-# An ad-hoc signature pins the designated requirement to the code's own hash, so
-# every rebuild is a different app as far as TCC is concerned and the Camera and
-# Accessibility grants have to be given again. Signing with a self-signed
-# certificate instead pins it to that certificate, and the grants survive:
-#
-#   Keychain Access > Certificate Assistant > Create a Certificate...
-#       name: MindControl Self-Signed, type: Code Signing, self-signed
-#   SIGN_IDENTITY="MindControl Self-Signed" packaging/build_app.sh
-codesign --force --deep --sign "${SIGN_IDENTITY:--}" "$APP" >/dev/null 2>&1 \
-    || echo "    could not sign with ${SIGN_IDENTITY:-'-'}; permissions will need re-granting" >&2
+# A certificate keeps the Camera, Accessibility and Menu Bar grants across builds
+# and ad-hoc does not; identity.sh explains why and picks one off the keychain.
+SIGN="$("$ROOT/packaging/identity.sh")"
+say "signing as $([ "$SIGN" = - ] && echo ad-hoc || echo "$SIGN")"
+codesign --force --deep --sign "$SIGN" "$APP" >/dev/null 2>&1 \
+    || echo "    could not sign with $SIGN; permissions will need re-granting" >&2
 
 say "built $APP ($(du -sh "$APP" | cut -f1))"
