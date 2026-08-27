@@ -1,0 +1,148 @@
+# mindcontrol configuration.
+#
+# Every threshold the gesture engine uses lives here, so bindings and feel can be
+# retuned without touching code. Reload from the menu bar after editing.
+#
+# Distances marked "palm units" are normalised by the wrist-to-middle-knuckle
+# span, which makes them independent of how far you are from the camera.
+
+[cameras]
+# Capture device indices, from 'mindcontrol cameras'. Here: 0 = built-in,
+# 1 = Logi C920e, 2 = phone over Continuity.
+#
+# The phone is deliberately left out. It is a third good view of the hand, and it
+# does help the still gestures -- it was worth two extra clicks on a recorded
+# session -- but it sees the hand closer to edge-on, and that pulls the blended
+# shape enough to cost the open palm during a sweep: swipes measured 2 with it and
+# 7 without. Add it back if you care more about clicking than swiping. Keep it
+# last if you do, so that when it wanders off only the trailing index disappears
+# and the other two keep theirs.
+devices = [0, 1]
+# Which device is trusted for gaze (a camera near the screen you look at).
+# 0 is the built-in, so this assumes you are looking at the laptop screen.
+primary_gaze = 0
+width = 1280
+height = 720
+fps = 30
+# Mirror the image so the debug view and your hand move the same way.
+mirror = true
+
+[tracking]
+max_hands = 2
+hand_detection_confidence = 0.6
+hand_presence_confidence = 0.5
+hand_tracking_confidence = 0.5
+face_enabled = true
+face_detection_confidence = 0.5
+# A landmark set older than this is treated as "hand gone".
+stale_after_ms = 250
+# How much better a rival camera must score before it takes over the pointer.
+# Handovers are cheap -- the new leader's own movement is stitched onto the track,
+# so nothing is lost crossing between views. This only stops the lead flitting
+# between cameras of near-equal confidence. Raise it if the pointer feels like it
+# is switching viewpoints; lower it if it clings to a camera with a poor view.
+leader_margin = 0.15
+
+[pointer]
+# hybrid = gaze aims and hands refine, hands = hands only, gaze = gaze only.
+mode = "hybrid"
+# Pixels of cursor travel per unit of normalised hand travel, before gain.
+sensitivity = 2600.0
+# Pointer acceleration: slow hand = precise, fast hand = far.
+gain_min = 0.55
+gain_max = 3.1
+# Hand speed (normalised units/sec) that reaches gain_max.
+gain_speed_reference = 1.4
+# Ignore sub-pixel jitter.
+deadzone = 0.0012
+# One-euro smoothing of the hand anchor. Lower fc = smoother but laggier.
+filter_fc_min = 1.4
+filter_beta = 0.035
+
+[gaze]
+# Cursor warps to gaze only after it holds still this long.
+fixation_ms = 150
+# Gaze samples must stay inside this radius (fraction of screen) to count as fixated.
+fixation_radius = 0.045
+# Do not warp for small corrections; let the hand do those.
+warp_min_distance = 0.09
+# Suppress warping while the hand is moving faster than this (normalised units/sec).
+hand_quiet_speed = 0.25
+# One-euro smoothing of the gaze point.
+filter_fc_min = 0.9
+filter_beta = 0.008
+# Eye-aspect-ratio below which the eye counts as shut and gaze is discarded.
+blink_ear = 0.14
+
+[gestures]
+# --- pinch detection (palm units, hysteresis pair: close then open) ---
+pinch_close = 0.414
+pinch_open = 0.470
+# Pinch shorter than this with little travel = tap (click). Longer = drag.
+# Set from measured closures: a real session's pinches fell into 43-524 ms taps
+# and 1008 ms-plus holds, with nothing in between, so the boundary sits in that
+# gap. At the old 260 most deliberate taps became drags instead of clicking.
+tap_max_ms = 600
+tap_max_travel = 0.08
+# Consecutive taps inside this window chain into a native double click.
+double_click_ms = 400
+# --- pose classification ---
+# A finger counts as extended when tip-to-wrist exceeds knuckle-to-wrist by this
+# ratio. Being a ratio, it holds for the short pinky and the long middle finger.
+finger_extended = 1.18
+# Thumb tip to pinky knuckle (palm units) above which the thumb is out.
+thumb_extended = 1.043
+# Mean adjacent-fingertip spread required for an open palm (palm units).
+palm_spread = 0.18
+# Palm-normal z required to count the palm as facing the camera. 0.0 accepts any
+# orientation; raise toward 0.3 if open palms trigger when your hand is sideways.
+palm_facing = 0.0
+# Hold an open, still palm this long to engage or disengage hand control.
+engage_hold_ms = 1000
+# Hold a "telephone" hand (thumb + pinky out) this long to toggle dictation.
+dictation_hold_ms = 700
+# A held pose must not drift more than this to count as held.
+hold_max_travel = 0.09
+# --- scroll (fist drag) ---
+scroll_sensitivity = 2200.0
+scroll_deadzone = 0.002
+# --- open-palm swipes ---
+swipe_min_speed = 1.1
+swipe_min_travel = 0.16
+# A sweeping palm is a blurred, rotating palm, and the pose drops out partway
+# through -- measured at 25% recognition mid-sweep against 100% held still, in
+# gaps averaging half a second. A sweep already under way keeps its open-palm
+# status for this long after the pose is lost, so the travel is not wiped before
+# the swipe completes. 0 demands the pose every frame and no swipe survives it.
+swipe_grace_ms = 600
+# Refractory period after any discrete gesture fires.
+gesture_cooldown_ms = 500
+
+[modes]
+# Touching the real mouse or keyboard suspends gesture output instantly.
+suspend_on_physical_input = true
+# Gesture control returns this long after the last physical input.
+resume_after_s = 3.0
+# Start engaged, or wait for a palm hold.
+start_engaged = false
+
+# Discrete gesture -> action binding. Actions are resolved in control/keyboard.py.
+[bindings]
+swipe_left = "desktop_left"
+swipe_right = "desktop_right"
+palm_push_up = "mission_control"
+telephone = "dictation"
+
+[keys]
+# macOS dictation has no reliably synthesisable default shortcut, so bind a real
+# key in System Settings > Keyboard > Dictation and mirror it here.
+dictation = { key = "f5", mods = [] }
+mission_control = { key = "up", mods = ["ctrl"] }
+desktop_left = { key = "left", mods = ["ctrl"] }
+desktop_right = { key = "right", mods = ["ctrl"] }
+
+[debug]
+# Show the annotated camera feed on start.
+overlay = false
+# Print pipeline timing to stdout every N seconds (0 = never).
+stats_interval_s = 0
