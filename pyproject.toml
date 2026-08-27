@@ -1,0 +1,48 @@
+[project]
+name = "mindcontrol"
+version = "0.1.0"
+description = "Control your Mac with hand and eye movements picked up by any camera you own."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = { text = "MIT" }
+
+dependencies = [
+    # 1.x macOS arm64 wheels abort inside TensorsToDetectionsCalculator asking for
+    # a Metal service that the wheel does not ship, so stay on the 0.10 line.
+    "mediapipe>=0.10.18,<1.0",
+    "opencv-python>=4.10.0",
+    "numpy>=1.26",
+    "rumps>=0.4.0",
+    "pyobjc-framework-Quartz>=10.3",
+    "pyobjc-framework-Cocoa>=10.3",
+    "pyobjc-framework-ApplicationServices>=10.3",
+    # Camera names for `mindcontrol cameras`; OpenCV indices alone are unstable.
+    "pyobjc-framework-AVFoundation>=10.3",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+mindcontrol = "mindcontrol.app:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mindcontrol"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# conftest.py holds the synthetic-hand builders the test modules import directly.
+pythonpath = ["tests"]
+addopts = "-q --strict-markers"
