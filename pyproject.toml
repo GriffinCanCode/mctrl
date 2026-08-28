@@ -1,11 +1,10 @@
 [project]
-name = "mindcontrol"
+name = "mctrl"
 version = "0.1.0"
 description = "Control your Mac with hand and eye movements picked up by any camera you own."
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 license = { text = "MIT" }
-
 dependencies = [
     # 1.x macOS arm64 wheels abort inside TensorsToDetectionsCalculator asking for
     # a Metal service that the wheel does not ship, so stay on the 0.10 line.
@@ -20,11 +19,16 @@ dependencies = [
     "pyobjc-framework-AVFoundation>=10.3",
 ]
 
-[dependency-groups]
-dev = ["pytest>=8.0"]
+[project.urls]
+Homepage = "https://github.com/GriffinCanCode/mctrl"
+Repository = "https://github.com/GriffinCanCode/mctrl"
 
 [project.scripts]
 mindcontrol = "mindcontrol.app:main"
+mctrl = "mindcontrol.app:main"
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
 
 [build-system]
 requires = ["hatchling"]
