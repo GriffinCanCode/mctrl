@@ -154,6 +154,22 @@ class NativeConfig:
 
 
 @dataclass
+class ApiConfig:
+    """The local API other applications talk to.
+
+    On by default, because the socket is user-only and in the user's own state
+    directory -- the same trust boundary the native helper already sits behind --
+    and an API nobody can reach without being told to enable it is an API nobody
+    uses. Turn it off here to run the app with no way in.
+    """
+
+    enabled: bool = True
+    # Empty means STATE_DIR/api.sock. Worth overriding only to run two builds
+    # side by side without them fighting over one socket.
+    socket: str = ""
+
+
+@dataclass
 class DebugConfig:
     overlay: bool = False
     stats_interval_s: float = 0.0
@@ -189,6 +205,7 @@ class Config:
     gestures: GestureConfig = field(default_factory=GestureConfig)
     modes: ModesConfig = field(default_factory=ModesConfig)
     native: NativeConfig = field(default_factory=NativeConfig)
+    api: ApiConfig = field(default_factory=ApiConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
     bindings: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_BINDINGS))
     keys: dict[str, KeyBinding] = field(default_factory=lambda: dict(DEFAULT_KEYS))

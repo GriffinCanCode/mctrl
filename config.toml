@@ -212,6 +212,16 @@ mission_control = { key = "up", mods = ["ctrl"] }
 desktop_left = { key = "left", mods = ["ctrl"] }
 desktop_right = { key = "right", mods = ["ctrl"] }
 
+[api]
+# The local API other applications use to read tracking and drive the cursor.
+# A Unix socket in your own state directory, mode 0600, never a network port.
+# Speak to it with `mindcontrol api describe`, or from Python with
+# mindcontrol.api.MindControl.connect().
+enabled = true
+# Empty means ~/.local/state/mindcontrol/api.sock. Only worth setting to run two
+# builds side by side without them fighting over one socket.
+socket = ""
+
 [debug]
 # Show the annotated camera feed on start.
 overlay = false

@@ -453,6 +453,93 @@ The knobs worth reaching for first:
 Set `pointer.mode` to `hands` to switch gaze off entirely, or `gaze` to lean on
 it harder.
 
+## The API
+
+Everything the app does is reachable from other programs: what your hands are
+doing, what the engine decided it meant, which mode control is in, and the cursor
+itself. Five modules, seventeen verbs, four streams. Ask it to describe itself:
+
+```
+mindcontrol api                     # the whole catalogue, no app needed
+mindcontrol api status.get
+mindcontrol api modes.set mode=active
+mindcontrol api input.move_by dx=40 dy=0
+mindcontrol api --watch gestures,hands --seconds 5
+```
+
+| module | verbs |
+| --- | --- |
+| `status` | `get` |
+| `modes` | `get`, `set`, `toggle` |
+| `tracking` | `subscribe`, `unsubscribe` |
+| `input` | `move_by`, `move_to`, `click`, `press`, `release`, `scroll` |
+| `system` | `calibrate`, `reload_config`, `pause`, `resume`, `describe` |
+
+The streams are `status` (one snapshot per processed frame), `hands` (fused hands
+with pose and measurements), `gaze` (the filtered point, as a fraction of the
+calibrated display) and `gestures` (intents as the engine emits them).
+
+### From Python
+
+```python
+from mindcontrol.api import MindControl
+
+with MindControl.connect() as mc:
+    mc.modes.engage()
+    for intent in mc.tracking.gestures(timeout=10.0):
+        print(intent.action, intent.dx, intent.dy)
+```
+
+`MindControl.launch()` is the same object with the pipeline running inside your
+own process instead of the menu-bar app's — for a kiosk, a test harness, or an
+application embedding the tracker. Every verb behaves identically either way,
+which is the point of both sides dispatching from one contract in
+`api/contract.py`.
+
+### From anything else
+
+A Unix socket at `~/.local/state/mindcontrol/api.sock`, mode 0600, one JSON
+object per line. No network port, no dependency to install.
+
+```
+$ nc -U ~/.local/state/mindcontrol/api.sock
+{"hello":{"protocol":1,"app":"mindcontrol"}}
+{"verb":"tracking.subscribe","params":{"streams":["gestures"]},"id":1}
+{"ok":true,"id":1,"result":{"streams":["gestures"],"landmarks":false,"interval_ms":0.0}}
+{"stream":"gestures","data":{"action":"click","dx":0.0,"dy":0.0,"button":"right"}}
+```
+
+Requests carry a `verb`, optional `params`, and an optional `id` that is echoed
+back, so several may be in flight. Replies are `{"ok":true,"result":...}` or
+`{"ok":false,"error":{"code":...,"message":...}}` — the code is for your program,
+the message is for your log. Stream frames arrive unprompted after a subscribe.
+
+Four decisions in there are worth knowing about.
+
+**Nothing you send touches the cursor directly.** The frame loop is the only
+writer of cursor state, the gesture engine and the socket to the native helper,
+which is what keeps a gaze warp and a hand delta from racing. An `input` verb is
+therefore queued and executed between frames, and answered `{"queued":true}` as
+soon as it is accepted. It goes out through the same `Mouse` a pinch does, so if
+the native helper is running your warp is smoothed and snapped exactly as a
+gesture would be.
+
+**Nothing you read can be half a frame.** The live status is one object the loop
+rewrites in place; what leaves is a copy taken at a known instant.
+
+**A slow consumer loses its own frames and nobody else's.** Each subscriber has
+its own bounded buffer and drops its oldest when it overflows, counting the loss
+into the next frame's `dropped` — because for anything driving a pointer, a feed
+that is merely slow and a feed that is dropping frames call for opposite
+responses. Pass `interval_ms` to thin `status`, `hands` and `gaze`; `gestures` is
+never thinned, since there is no such thing as a sampled click.
+
+**Landmarks are opt-in.** The 21 points per hand dwarf everything else on the
+wire, and most consumers want the pose label. Pass `landmarks: true` to
+`tracking.subscribe` for the skeleton.
+
+Turn the whole thing off with `enabled = false` under `[api]` in `config.toml`.
+
 ## How it fits together
 
 ```
@@ -483,6 +570,11 @@ a screen, an Accessibility grant, or another application to interrogate:
 thread for the menu bar, because a macOS status item needs the Cocoa run loop.
 `control/modes.py` arbitrates between your hands and your hardware, watching for
 physical input on a private run loop of its own.
+
+`api/` is how anything else joins in. `api/contract.py` declares the verbs and
+the snapshots; `api/runtime.py` is the only place that binds them to a live
+pipeline, and both the Python facade and the socket server go through it, so the
+two cannot become different APIs for the same program.
 
 Every event the app injects is tagged, and the watcher ignores anything carrying
 that tag. Without it the app would see its own cursor motion, conclude a human
@@ -657,6 +749,13 @@ Three layers, deliberately separated:
   until you have run `mindcontrol record`, rather than invent input, because a
   test that fabricates its own data would report success while checking nothing
   about the person using this.
+
+The two seams where this program meets another one get tested through the real
+thing rather than a mock, because a byte layout and a wire protocol both rot
+silently: `test_bridge.py` pushes real datagrams at the Swift helper, and
+`test_api_server.py` runs the real pipeline with no cameras configured, so its
+frame loop genuinely turns and a verb arriving on a socket can be shown to
+execute on it.
 
 When a reality test fails but the matching machinery test passes, the pipeline is
 fine and the thresholds do not suit those hands: run `mindcontrol autotune`.

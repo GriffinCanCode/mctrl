@@ -14,6 +14,7 @@ starts working.
 
 from __future__ import annotations
 
+import queue
 import threading
 import time
 from collections.abc import Callable
@@ -52,6 +53,36 @@ class PipelineStatus:
     problems: list[str] = field(default_factory=list)
 
 
+class _Command:
+    """Work handed to the frame loop from another thread.
+
+    Cursor state, the gesture engine and the socket to the native helper are all
+    single-threaded by construction -- the loop is the only writer, and that is
+    what makes a warp and a hand delta unable to race each other. So an outside
+    caller does not touch them; it queues a closure and the loop runs it between
+    frames, which keeps that guarantee while still letting anything drive.
+    """
+
+    __slots__ = ("done", "error", "result", "run")
+
+    def __init__(self, run: Callable[[], object], *, wait: bool) -> None:
+        self.run = run
+        self.done = threading.Event() if wait else None
+        self.result: object = None
+        self.error: BaseException | None = None
+
+    def __call__(self) -> None:
+        try:
+            self.result = self.run()
+        except BaseException as problem:
+            # Carried back to whoever queued it rather than raised here, where it
+            # would end the frame loop over somebody else's mistake.
+            self.error = problem
+        finally:
+            if self.done is not None:
+                self.done.set()
+
+
 class Pipeline:
     """Owns the cameras, the models, and the frame loop."""
 
@@ -81,9 +112,14 @@ class Pipeline:
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._paused = threading.Event()
+        self._commands: queue.SimpleQueue[_Command] = queue.SimpleQueue()
         self._seen: dict[int, int] = {}
         self.status = PipelineStatus(mode=self.modes.describe())
         self.frame_hook: Callable[[Frame, list[FusedHand], PipelineStatus], None] | None = None
+        # Everything the engine decided this frame, before it is acted on. The
+        # overlay wants the frame; anything watching the program from outside
+        # wants the intents, which used to be visible only in their effects.
+        self.gesture_hook: Callable[[list[GestureEvent]], None] | None = None
 
     # ----------------------------------------------------------------- lifecycle
 
@@ -111,6 +147,39 @@ class Pipeline:
         self._close_cameras()
         self.modes.stop()
         self.bridge.stop()
+
+    @property
+    def running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    def submit(self, work: Callable[[], object], *, timeout: float | None = None) -> object:
+        """Run ``work`` on the frame loop, from any thread.
+
+        With a timeout the call waits for the result and re-raises whatever the
+        work raised, which is what a caller who needs to know it landed wants.
+        Without one it returns immediately: for cursor motion that is the right
+        trade, since the cost of a late delta is worse than the cost of a lost one.
+        """
+        if not self.running:
+            raise RuntimeError("the pipeline is not running")
+        command = _Command(work, wait=timeout is not None)
+        self._commands.put(command)
+        if command.done is None:
+            return None
+        if not command.done.wait(timeout):
+            raise TimeoutError("the frame loop did not get to it in time")
+        if command.error is not None:
+            raise command.error
+        return command.result
+
+    def _drain_commands(self) -> None:
+        """Run queued work. First thing each pass, so it happens even when paused."""
+        while True:
+            try:
+                command = self._commands.get_nowait()
+            except queue.Empty:
+                return
+            command()
 
     def pause(self) -> None:
         """Release the cameras so another process can use them, e.g. calibration."""
@@ -162,6 +231,7 @@ class Pipeline:
         previous = time.monotonic()
         smoothed_fps = 0.0
         while not self._stop.is_set():
+            self._drain_commands()
             if self._paused.is_set() or self._bank is None:
                 time.sleep(0.05)
                 continue
@@ -285,6 +355,7 @@ class Pipeline:
     # --------------------------------------------------------------- dispatching
 
     def _dispatch(self, events: list[GestureEvent]) -> None:
+        self._announce(events)
         for event in events:
             action = event.action
             if action is Action.ENGAGE_TOGGLE:
@@ -301,6 +372,11 @@ class Pipeline:
                 self.mouse.scroll(event.dx, event.dy)
             else:
                 self._run_binding(action.value)
+
+    def _announce(self, events: list[GestureEvent]) -> None:
+        """Report events to whoever is listening, before they are acted on."""
+        if events and self.gesture_hook is not None:
+            self.gesture_hook(list(events))
 
     def _signal_mode(self, engaged: bool) -> None:
         """Keep the helper's idea of the current gesture current.
@@ -327,17 +403,36 @@ class Pipeline:
             return
         self.keyboard.run_action(action)
 
-    def _toggle_engage(self) -> None:
-        mode = self.modes.toggle()
-        if mode is Mode.OFF:
-            self._release_control()
+    def apply_mode(self, mode: Mode | None = None) -> Mode:
+        """Adopt a mode, or flip between off and active when none is given.
+
+        The engage gesture and any outside caller come through here together, so
+        neither can change mode without control being released on the way out. A
+        button left held is the one failure that makes the machine unusable, and
+        it must not depend on which route asked.
+
+        Runs on the frame loop, since it touches the cursor.
+        """
+        if mode is None:
+            resolved = self.modes.toggle()
         else:
+            self.modes.set_mode(mode)
+            resolved = self.modes.mode
+        if resolved is Mode.ACTIVE:
             self.engine.rebase()
             self.mouse.refresh_bounds()
+        else:
+            self._release_control()
+        return resolved
+
+    def _toggle_engage(self) -> None:
+        self.apply_mode()
 
     def _release_control(self) -> None:
         """Drop any held button and clear motion state."""
-        for event in self.engine.release():
+        released = self.engine.release()
+        self._announce(released)
+        for event in released:
             if event.action is Action.DRAG_END:
                 self.mouse.release(event.button)
         self.mouse.release()

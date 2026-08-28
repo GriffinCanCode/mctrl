@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import argparse
 import subprocess
-import sys
-import threading
 import time
 from pathlib import Path
 
 from . import config as config_module
+from .api.contract import ApiError
+from .api.runtime import Runtime
+from .api.server import ApiServer
 from .config import Config, load
 from .control.modes import Mode
 from .debug_view import DebugView, render
@@ -35,7 +36,7 @@ STATUS_ITEM_NAME = "MindControl"
 def camera_state(prompt: bool = True) -> str:
     """Camera authorisation, as one of ``ok``, ``waiting`` or ``refused``.
 
-    OpenCV's AVFoundation backend asks for access itself and then fails the same
+    OpenCV's AVFoundation backend ask for access itself and then fails the same
     frame if the answer is not already yes, so nothing may open a camera until
     this says ``ok``. The dialog is answered by a human, which takes many frames,
     hence ``waiting`` rather than a second attempt.
@@ -91,8 +92,12 @@ class MindControlApp:
         self._rumps = rumps
         self.cfg = cfg
         self.pipeline = Pipeline(cfg)
+        # The runtime exists whether or not anything is listening: it is what the
+        # menu's own calibration goes through, so the two routes into the
+        # pipeline cannot drift apart.
+        self.runtime = Runtime(pipeline=self.pipeline, on_config=self._adopt_config)
+        self.server = ApiServer(self.runtime, cfg.api)
         self.view = DebugView()
-        self._calibrating = False
 
         self.app = rumps.App("MindControl", title=GLYPHS[Mode.OFF], quit_button=None)
         self._status_item = rumps.MenuItem("Starting...")
@@ -163,13 +168,19 @@ class MindControlApp:
                 "enable the app running this process and start it again."
             )
         self.pipeline.frame_hook = self._on_frame
+        # After the overlay's hook, which the runtime chains rather than replaces.
+        self.runtime.attach()
         self.pipeline.start()
+        if not self.server.start() and self.server.error:
+            print(f"[api] {self.server.error}")
         if self.cfg.debug.overlay:
             self.view.open()
         return True
 
     def _shutdown(self) -> None:
         self._timer.stop()
+        self.server.stop()
+        self.runtime.close()
         self.pipeline.stop()
         self.view.close()
 
@@ -193,7 +204,9 @@ class MindControlApp:
         self._status_item.title = self._summary(status)
 
     def _summary(self, status: PipelineStatus) -> str:
-        if self._calibrating:
+        # Asked of the runtime rather than remembered here, so a calibration
+        # started over the API shows up in the menu as well.
+        if self.runtime.calibrating:
             return "Calibrating gaze..."
         if status.problems:
             return status.problems[0][:60]
@@ -219,31 +232,18 @@ class MindControlApp:
             self.view.open()
 
     def _on_calibrate(self, _sender) -> None:
-        if self._calibrating:
-            return
-        self._calibrating = True
         # Calibration needs the camera and a fullscreen window of its own, so the
-        # pipeline lets go for the duration and reloads the result afterwards.
-        threading.Thread(target=self._calibrate, name="calibrate", daemon=True).start()
-
-    def _calibrate(self) -> None:
-        previous = self.pipeline.modes.mode
-        self.pipeline.modes.set_mode(Mode.OFF)
-        self.pipeline.pause()
+        # runtime pauses the pipeline for the duration and reloads the result
+        # afterwards. It also refuses a second one, which is the guard this used
+        # to keep for itself.
         try:
-            result = subprocess.run(
-                [sys.executable, "-m", "mindcontrol.calibrate"],
-                cwd=Path.cwd(),
-                check=False,
-            )
-            if result.returncode != 0:
-                print(f"[app] calibration exited with {result.returncode}")
-        except OSError as exc:
-            print(f"[app] could not start calibration: {exc}")
-        finally:
-            self.pipeline.resume()
-            self.pipeline.modes.set_mode(previous)
-            self._calibrating = False
+            self.runtime.calibrate()
+        except ApiError as problem:
+            print(f"[app] {problem.message}")
+
+    def _adopt_config(self, cfg: Config) -> None:
+        """Follow a reload someone else asked for, so the menu is not left stale."""
+        self.cfg = cfg
 
     def _on_reload(self, _sender) -> None:
         self.cfg = load()
@@ -271,7 +271,12 @@ def run_headless(cfg: Config, overlay: bool) -> int:
             latest["image"] = render(frame, hands, status, status.gaze_point)
 
     pipeline.frame_hook = hook
+    runtime = Runtime(pipeline)
+    runtime.attach()
     pipeline.start()
+    server = ApiServer(runtime, cfg.api)
+    if not server.start() and server.error:
+        print(f"[api] {server.error}")
     keys = "Ctrl-C stops" + (", Esc closes the window" if overlay else "")
     print(f"[app] running headless; {keys}", flush=True)
     try:
@@ -293,6 +298,8 @@ def run_headless(cfg: Config, overlay: bool) -> int:
     except KeyboardInterrupt:
         pass
     finally:
+        server.stop()
+        runtime.close()
         pipeline.stop()
         if overlay:
             cv2.destroyAllWindows()
@@ -344,6 +351,20 @@ def _build_parser() -> argparse.ArgumentParser:
     player = subcommands.add_parser("replay", help="run a recorded session through the engine")
     player.add_argument("session", nargs="?", type=Path, help="session file (default: newest)")
 
+    remote = subcommands.add_parser("api", help="call the local API of a running MindControl")
+    remote.add_argument(
+        "verb", nargs="?", help="verb to call, e.g. status.get; omit to print the catalogue"
+    )
+    remote.add_argument(
+        "params",
+        nargs="*",
+        metavar="key=value",
+        help="parameters, each value read as JSON: dx=40, mode=active",
+    )
+    remote.add_argument("--watch", help="comma-separated streams to print as they arrive")
+    remote.add_argument("--seconds", type=float, help="with --watch, stop after this long")
+    remote.add_argument("--socket", type=Path, help="socket to connect to")
+
     helper = subcommands.add_parser(
         "bridge", help="build the native helper that smooths and snaps the cursor"
     )
@@ -373,6 +394,17 @@ def main(argv: list[str] | None = None) -> int:
         from . import calibrate
 
         return calibrate.run(cfg)
+
+    if command == "api":
+        from .api import cli
+
+        return cli.run(
+            args.verb,
+            args.params,
+            watch=args.watch,
+            seconds=args.seconds,
+            socket=args.socket,
+        )
 
     if command == "bridge":
         from .control import bridge
