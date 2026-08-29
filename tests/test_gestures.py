@@ -191,6 +191,39 @@ def test_fast_palm_swipes(cfg):
     assert Action.SWIPE_RIGHT in seen
 
 
+def _vertical_sweep(cfg, direction: int) -> list[Action]:
+    """Push an open palm straight up or straight down. Image y grows downward."""
+    driver = Driver(cfg)
+    seen: list[Action] = []
+    for step in range(10):
+        y = 0.5 + direction * step * 0.06
+        seen += driver.actions(synthetic(cfg.gestures, pose=Pose.OPEN_PALM, anchor=(0.5, y)))
+    return seen
+
+
+def test_a_palm_pushed_up_and_one_pushed_down_are_different_gestures(cfg):
+    """The down half was previously measured and then discarded.
+
+    Both directions already had to be computed to tell a vertical sweep from a
+    horizontal one, so the downward one was a gesture the engine could see and
+    had no name for. It ships bound to nothing -- lowering a palm is also how a
+    hand comes to rest -- but a consumer can hear it and a config can bind it.
+    """
+    assert Action.PALM_PUSH_UP in _vertical_sweep(cfg, -1)
+    assert Action.PALM_PUSH_DOWN not in _vertical_sweep(cfg, -1)
+
+    assert Action.PALM_PUSH_DOWN in _vertical_sweep(cfg, 1)
+    assert Action.PALM_PUSH_UP not in _vertical_sweep(cfg, 1)
+
+
+def test_a_vertical_push_is_not_a_sideways_swipe(cfg):
+    """The axis with the most travel wins, or a diagonal fires two gestures."""
+    for direction in (-1, 1):
+        seen = _vertical_sweep(cfg, direction)
+        assert Action.SWIPE_LEFT not in seen
+        assert Action.SWIPE_RIGHT not in seen
+
+
 def test_a_pinch_that_never_looked_ready_still_works(cfg):
     """A well-formed pinch is not a recognisable pose, and must still be heard.
 

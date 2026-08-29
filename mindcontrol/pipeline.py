@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 
 from .camera.capture import CameraBank, Frame
 from .config import GAZE_MODEL_PATH, Config
+from .control.bindings import BindingTable, Focus
 from .control.bridge import Bridge
 from .control.keyboard import Keyboard
 from .control.modes import Mode, ModeManager
@@ -50,6 +51,9 @@ class PipelineStatus:
     # Whether the native helper is driving. False means the fallback path is,
     # which works but is neither smoothed nor snapped.
     native: bool = False
+    # Bundle identifier of the application in front, which is what the discrete
+    # gestures are bound against. Empty when macOS will not say.
+    app: str = ""
     problems: list[str] = field(default_factory=list)
 
 
@@ -98,6 +102,8 @@ class Pipeline:
         self.bridge = Bridge(cfg.native, cfg.gestures.double_click_ms)
         self.mouse = Mouse(double_click_ms=cfg.gestures.double_click_ms, bridge=self.bridge)
         self.keyboard = Keyboard(cfg.keys)
+        self.bindings = BindingTable(cfg.bindings, cfg.app_bindings, cfg.keys)
+        self.focus = Focus()
         self.engine = GestureEngine(cfg.pointer, cfg.gestures, cfg.tracking)
         self.fusion = HandFusion(cfg.tracking, cfg.gestures)
 
@@ -301,6 +307,9 @@ class Pipeline:
         self.status.cameras = tuple(sorted(frames))
         self.status.merged = any(hand.merged for hand in fused)
         self.status.gaze_ready = self.gaze_model.ready
+        # Cached behind its own interval, so this is a couple of AppKit calls a
+        # second rather than one per frame.
+        self.status.app = self.focus.current().bundle
 
         if self.frame_hook is not None:
             primary = frames.get(self._bank.primary_id) or next(iter(frames.values()))
@@ -398,10 +407,14 @@ class Pipeline:
         )
 
     def _run_binding(self, gesture: str) -> None:
-        action = self.cfg.bindings.get(gesture)
-        if action is None:
-            return
-        self.keyboard.run_action(action)
+        """Send whatever this gesture means in front of this application.
+
+        Resolved at the moment the gesture fires rather than cached, because the
+        application in front is exactly what the user changed since the last one.
+        """
+        action = self.bindings.resolve(gesture, self.focus.current())
+        if action is not None:
+            self.keyboard.run_action(action)
 
     def apply_mode(self, mode: Mode | None = None) -> Mode:
         """Adopt a mode, or flip between off and active when none is given.
@@ -463,6 +476,9 @@ class Pipeline:
         self.engine = GestureEngine(cfg.pointer, cfg.gestures, cfg.tracking)
         self.fusion = HandFusion(cfg.tracking, cfg.gestures)
         self.keyboard.update_bindings(cfg.keys)
+        # Rebuilt rather than merged: a reload means the file is the answer, so a
+        # binding deleted from it has to disappear here too.
+        self.bindings = BindingTable(cfg.bindings, cfg.app_bindings, cfg.keys)
         self.bridge.apply_config(cfg.native, cfg.gestures.double_click_ms)
         self._gaze_filter = OneEuroFilter2D(cfg.gaze.filter_fc_min, cfg.gaze.filter_beta)
         self._fixation = FixationDetector(cfg.gaze.fixation_ms, cfg.gaze.fixation_radius)

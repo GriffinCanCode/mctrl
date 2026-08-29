@@ -41,6 +41,7 @@ class Action(Enum):
     SWIPE_LEFT = "swipe_left"
     SWIPE_RIGHT = "swipe_right"
     PALM_PUSH_UP = "palm_push_up"
+    PALM_PUSH_DOWN = "palm_push_down"
 
 
 class State(Enum):
@@ -420,10 +421,12 @@ class GestureEngine:
                 self._clear_sweep()
                 action = Action.SWIPE_RIGHT if travel_x > 0 else Action.SWIPE_LEFT
                 return [GestureEvent(action)]
-            if -travel_y >= self._cfg.swipe_min_travel and abs(travel_y) > abs(travel_x):
+            if abs(travel_y) >= self._cfg.swipe_min_travel and abs(travel_y) > abs(travel_x):
                 self._consume(now)
                 self._clear_sweep()
-                return [GestureEvent(Action.PALM_PUSH_UP)]
+                # Image y grows downward, so a negative sweep is a push up.
+                up = travel_y < 0
+                return [GestureEvent(Action.PALM_PUSH_UP if up else Action.PALM_PUSH_DOWN)]
             return []
 
         if self._hold_satisfied(hand, now, self._cfg.engage_hold_ms):

@@ -1,4 +1,4 @@
-"""The SDK: one object, five modules, the same verbs either way.
+"""The SDK: one object, six modules, the same verbs either way.
 
     from mindcontrol.api import MindControl
 
@@ -163,6 +163,46 @@ class Input(_Module):
     def scroll(self, dx: float, dy: float) -> dict[str, Any]:
         return self._backend.call("input.scroll", {"dx": dx, "dy": dy})
 
+    def key(self, action: str) -> dict[str, Any]:
+        """Tap a chord such as ``cmd+shift+p``, or a name from ``[keys]``."""
+        return self._backend.call("input.key", {"action": action})
+
+
+class Bindings(_Module):
+    """What the discrete gestures mean, and in which application.
+
+    The pointing gestures need nothing here -- a pinch is a click everywhere. A
+    sweep is the opposite: it means "back" in a browser, "previous page" in a
+    reader and "previous desktop" on the desktop, so it resolves through a table
+    that an application scope may override.
+    """
+
+    def get(self, app: str | None = None) -> dict[str, Any]:
+        params = {} if app is None else {"app": app}
+        return self._backend.call("bindings.get", params)
+
+    __call__ = get
+
+    def set(self, gesture: str, action: str, app: str | None = None) -> dict[str, Any]:
+        params: dict[str, Any] = {"gesture": gesture, "action": action}
+        if app is not None:
+            params["app"] = app
+        return self._backend.call("bindings.set", params)
+
+    def clear(self, gesture: str, app: str | None = None) -> dict[str, Any]:
+        params: dict[str, Any] = {"gesture": gesture}
+        if app is not None:
+            params["app"] = app
+        return self._backend.call("bindings.clear", params)
+
+    def mute(self, gesture: str, app: str) -> dict[str, Any]:
+        """Make a gesture do nothing in one application, without unbinding it."""
+        return self.set(gesture, "none", app)
+
+    def resolved(self, app: str | None = None) -> dict[str, Any]:
+        """Just the answers: gesture to whatever it will do right now."""
+        return dict(self.get(app)["resolved"])
+
 
 class System(_Module):
     """Calibration, config, and letting go of the cameras."""
@@ -195,6 +235,7 @@ class MindControl:
         self.modes = Modes(backend)
         self.tracking = Tracking(backend)
         self.input = Input(backend)
+        self.bindings = Bindings(backend)
         self.system = System(backend)
 
     # ------------------------------------------------------------------ opening

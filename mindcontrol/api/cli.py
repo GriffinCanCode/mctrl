@@ -62,6 +62,80 @@ def _summarise() -> int:
     return 0
 
 
+def bind(
+    gesture: str | None = None,
+    action: str | None = None,
+    *,
+    app: str | None = None,
+    clear: bool = False,
+    socket: Path | None = None,
+) -> int:
+    """``mindcontrol bind`` -- read or rewrite the gesture bindings.
+
+    Written for a human rather than a pipe, unlike the rest of this module: it is
+    the one thing here somebody runs to set the program up rather than to drive
+    it. Everything it does is also reachable as ``bindings.get``, ``bindings.set``
+    and ``bindings.clear`` for anything that wants JSON.
+    """
+    try:
+        with Client(socket).open() as client:
+            if gesture is None:
+                answer = client.call("bindings.get", {"app": app} if app else None)
+            else:
+                params: dict[str, Any] = {"gesture": gesture}
+                if app:
+                    params["app"] = app
+                if clear or action is None:
+                    answer = client.call("bindings.clear", params)
+                else:
+                    params["action"] = action
+                    answer = client.call("bindings.set", params)
+            _print_bindings(answer, asked=app)
+    except ApiError as problem:
+        print(f"[bind] {problem.code}: {problem.message}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _print_bindings(table: dict[str, Any], asked: str | None = None) -> None:
+    """The table as a human reads it: what each gesture does, and where from.
+
+    ``asked`` distinguishes the two questions this can answer -- what a named
+    application does, and what the one in front of you does -- because a report
+    that said "in front" for both would be wrong half the time.
+    """
+    resolved = table.get("resolved") or {}
+    apps = table.get("apps") or {}
+    default = table.get("default") or {}
+    scope = table.get("scope")
+    scoped = apps.get(scope or "", {})
+
+    if asked:
+        subject = f"for {asked}"
+    else:
+        front = table.get("app") or {}
+        subject = f"in front: {front.get('name') or front.get('bundle') or 'nothing'}"
+    print(subject + (f"  (matching [bindings.{scope}])" if scope else ""))
+
+    for gesture in table.get("gestures", ()):
+        action = resolved.get(gesture)
+        if gesture in scoped:
+            # A scoped binding of `none` is a deliberate silence, and reads as
+            # unbound unless it is named as the other thing it is.
+            origin = f"[{scope}]" + ("  muted" if action is None else "")
+        elif gesture in default:
+            origin = ""
+        else:
+            origin = "(unbound)"
+        print(f"  {gesture:<16} {action or '-':<20} {origin}".rstrip())
+
+    for name, rows in sorted(apps.items()):
+        if name == scope:
+            continue
+        listed = ", ".join(f"{key}={value}" for key, value in sorted(rows.items()))
+        print(f"  [{name}] {listed}")
+
+
 def _watch(client: Client, streams: str, seconds: float | None) -> None:
     names = [name.strip() for name in streams.split(",") if name.strip()]
     client.call("tracking.subscribe", {"streams": names} if names else None)

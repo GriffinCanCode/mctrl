@@ -25,6 +25,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+# The bindable gesture names, so `bindings.set` publishes its choices rather than
+# describing them. Importing them costs nothing: `control.bindings` is the
+# resolution rule and the table, and it loads no framework of any kind.
+from ..control.bindings import BINDABLE
+
 if TYPE_CHECKING:  # pragma: no cover - annotations only, never imported at runtime
     from ..gestures.engine import GestureEvent
     from ..gestures.fusion import FusedHand
@@ -86,6 +91,11 @@ class StatusSnapshot:
     # is neither smoothed nor snapped. Worth surfacing, because a consumer
     # building a pointing UX feels the difference.
     native: bool = False
+    # Bundle identifier of the application in front. Reported because a consumer
+    # that wants to react to a gesture differently per application would
+    # otherwise have to ask macOS itself, and would then be answering about a
+    # different instant than the gesture arrived from.
+    app: str = ""
     problems: tuple[str, ...] = ()
 
     @classmethod
@@ -103,6 +113,7 @@ class StatusSnapshot:
             else (_round(status.gaze_point[0]), _round(status.gaze_point[1])),
             warps=status.warps,
             native=status.native,
+            app=status.app,
             problems=tuple(status.problems),
         )
 
@@ -118,6 +129,7 @@ class StatusSnapshot:
             "gaze_point": None if self.gaze_point is None else list(self.gaze_point),
             "warps": self.warps,
             "native": self.native,
+            "app": self.app,
             "problems": list(self.problems),
         }
 
@@ -135,6 +147,7 @@ class StatusSnapshot:
             gaze_point=None if point is None else (float(point[0]), float(point[1])),
             warps=int(data.get("warps", 0)),
             native=bool(data.get("native", False)),
+            app=str(data.get("app", "")),
             problems=tuple(str(p) for p in data.get("problems", ())),
         )
 
@@ -539,6 +552,55 @@ VERBS: tuple[Verb, ...] = (
         "Scroll by a pixel delta.",
         (Param("dx", "float", "pixels right"), Param("dy", "float", "pixels down")),
         deferred=True,
+    ),
+    Verb(
+        "input",
+        "key",
+        "Tap a key chord, so a consumer can act on a gesture as well as read it.",
+        (Param("action", "str", "a chord like cmd+shift+p, or a name from [keys]"),),
+        deferred=True,
+    ),
+    Verb(
+        "bindings",
+        "get",
+        "Every bindable gesture, the bindings in force, and what each means right now.",
+        (
+            Param(
+                "app",
+                "str",
+                "resolve against this application; omit for whichever is in front",
+                required=False,
+            ),
+        ),
+    ),
+    Verb(
+        "bindings",
+        "set",
+        "Bind a gesture to a key chord, for one application or for all of them.",
+        (
+            Param("gesture", "str", "the gesture to bind", choices=BINDABLE),
+            Param("action", "str", "a chord like cmd+[, a name from [keys], or none to mute it"),
+            Param(
+                "app",
+                "str",
+                "bundle id, app name, or its tail; omit to bind everywhere",
+                required=False,
+            ),
+        ),
+    ),
+    Verb(
+        "bindings",
+        "clear",
+        "Drop a binding, leaving the gesture to fall through or do nothing.",
+        (
+            Param("gesture", "str", "the gesture to unbind", choices=BINDABLE),
+            Param(
+                "app",
+                "str",
+                "the application scope to drop it from; omit for the global one",
+                required=False,
+            ),
+        ),
     ),
     Verb("system", "calibrate", "Run the nine-point gaze calibration, releasing the cameras."),
     Verb(

@@ -1,8 +1,8 @@
 """The public API: what other applications talk to.
 
 Everything MindControl does, behind one small vocabulary of modules and verbs.
-Five modules -- ``status``, ``modes``, ``tracking``, ``input``, ``system`` -- and
-one way in from anywhere:
+Six modules -- ``status``, ``modes``, ``tracking``, ``input``, ``bindings``,
+``system`` -- and one way in from anywhere:
 
     from mindcontrol.api import MindControl
 
@@ -10,6 +10,12 @@ one way in from anywhere:
         mc.modes.engage()
         for delivery in mc.tracking.events(["gestures"], timeout=5.0):
             print(delivery.stream, delivery.payload)
+
+Teaching a gesture to an application is two calls, either from here or from a
+shell with ``mindcontrol bind``:
+
+    mc.bindings.set("swipe_left", "cmd+[", app="Safari")
+    mc.bindings.set("palm_push_down", "cmd+w", app="Safari")
 
 From another language, the same surface is a Unix socket speaking one JSON
 object per line; ``mindcontrol api describe`` prints the whole catalogue, which

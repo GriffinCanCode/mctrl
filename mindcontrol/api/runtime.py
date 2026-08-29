@@ -211,6 +211,40 @@ class Runtime:
     def scroll(self, dx: float, dy: float) -> dict[str, Any]:
         return self._defer(lambda: self.pipeline.mouse.scroll(dx, dy))
 
+    def key(self, action: str) -> dict[str, Any]:
+        """Send a keystroke. Deferred like the rest, so ordering with clicks holds.
+
+        Without this, a consumer could read a gesture and move the cursor but not
+        act on the thing it landed on -- which is most of what driving another
+        application consists of.
+        """
+        return self._defer(lambda: self.pipeline.keyboard.run_action(action))
+
+    # ---------------------------------------------------------------- bindings
+
+    def bindings(self, app: str | None = None) -> dict[str, Any]:
+        """The binding table, resolved against an application or the front one."""
+        from ..control.bindings import App
+
+        target = App(bundle=app, name=app) if app else self.pipeline.focus.current()
+        return self.pipeline.bindings.to_json(target)
+
+    def bind(self, gesture: str, action: str, app: str | None = None) -> dict[str, Any]:
+        """Install a binding. Runs on the frame loop, which is what reads the table."""
+        self._write(lambda: self.pipeline.bindings.set(gesture, action, app))
+        return self.bindings(app)
+
+    def unbind(self, gesture: str, app: str | None = None) -> dict[str, Any]:
+        self._write(lambda: self.pipeline.bindings.clear(gesture, app))
+        return self.bindings(app)
+
+    def _write(self, work: Callable[[], Any]) -> None:
+        """Change the table on the loop, reporting a bad binding as a bad request."""
+        try:
+            self._on_loop(work, LOOP_TIMEOUT)
+        except ValueError as problem:
+            raise ApiError(api.BAD_PARAMS, str(problem)) from problem
+
     # ------------------------------------------------------------------ system
 
     def reload_config(self) -> dict[str, Any]:
@@ -394,6 +428,10 @@ class Session:
             "input.press": runtime.press,
             "input.release": runtime.release,
             "input.scroll": runtime.scroll,
+            "input.key": runtime.key,
+            "bindings.get": runtime.bindings,
+            "bindings.set": runtime.bind,
+            "bindings.clear": runtime.unbind,
             "system.calibrate": runtime.calibrate,
             "system.reload_config": runtime.reload_config,
             "system.pause": runtime.pause,

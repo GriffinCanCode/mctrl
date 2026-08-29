@@ -188,11 +188,17 @@ DEFAULT_BINDINGS: dict[str, str] = {
     "telephone": "dictation",
 }
 
+# ``palm_push_down`` is deliberately absent above. The engine emits it, so it can
+# be bound in one line and read on the gestures stream, but lowering an open palm
+# is also how a hand comes to rest -- and a system-wide action nobody asked for
+# is worse than a gesture that starts out doing nothing.
+
 DEFAULT_KEYS: dict[str, KeyBinding] = {
     "dictation": KeyBinding("f5", []),
     "mission_control": KeyBinding("up", ["ctrl"]),
     "desktop_left": KeyBinding("left", ["ctrl"]),
     "desktop_right": KeyBinding("right", ["ctrl"]),
+    "app_windows": KeyBinding("down", ["ctrl"]),
 }
 
 
@@ -208,6 +214,11 @@ class Config:
     api: ApiConfig = field(default_factory=ApiConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
     bindings: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_BINDINGS))
+    # Bindings that apply only in front of one application, keyed by whatever
+    # names it: its bundle identifier, its name, or the tail of the identifier.
+    # Written as ``[bindings.Safari]`` sub-tables, and consulted before the
+    # global table above.
+    app_bindings: dict[str, dict[str, str]] = field(default_factory=dict)
     keys: dict[str, KeyBinding] = field(default_factory=lambda: dict(DEFAULT_KEYS))
     source_path: Path | None = None
 
@@ -238,7 +249,15 @@ def load(explicit: Path | None = None) -> Config:
             raw = tomllib.load(handle)
         for name, value in raw.items():
             if name == "bindings":
-                cfg.bindings.update(value)
+                # A sub-table is an application scope and a scalar is a global
+                # binding, which is exactly how TOML already spells the two:
+                # `swipe_left = "..."` under [bindings], versus the same line
+                # under [bindings.Safari].
+                for gesture, action in value.items():
+                    if isinstance(action, dict):
+                        cfg.app_bindings.setdefault(gesture, {}).update(action)
+                    else:
+                        cfg.bindings[gesture] = action
             elif name == "keys":
                 cfg.keys.update(
                     {

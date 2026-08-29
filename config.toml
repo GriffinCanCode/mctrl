@@ -197,20 +197,54 @@ resume_after_s = 3.0
 # Start engaged, or wait for a palm hold.
 start_engaged = false
 
-# Discrete gesture -> action binding. Actions are resolved in control/keyboard.py.
+# Discrete gesture -> what it does. The pointing gestures are not here and cannot
+# be: a pinch is a click everywhere, and the helper already aims it at whatever
+# the accessibility API says is under the cursor. These four are the ones with no
+# single right answer, so they go through a table.
+#
+# An action is either a name from [keys] below or a chord written out in full --
+# "cmd+shift+p", "ctrl+left", "f5". See `mindcontrol bind` for the live version of
+# this table, and `mindcontrol api bindings.set` to change it without a reload.
 [bindings]
 swipe_left = "desktop_left"
 swipe_right = "desktop_right"
 palm_push_up = "mission_control"
 telephone = "dictation"
+# palm_push_down is deliberately left out. The engine emits it and it is one line
+# away from working, but lowering an open palm is also how a hand comes to rest,
+# and a system-wide action nobody asked for is worse than a gesture that starts
+# out inert. Bind it per app, where its cost is a keystroke you can undo.
+
+# Bindings that only apply in front of one application, checked before the table
+# above. Name the app by its bundle id, its name, or the tail of the id -- so
+# "com.apple.Safari", "Safari" and "safari" all mean the same thing.
+#
+# The point of these: a sweep left is "previous desktop" on the desktop and
+# "back" in a browser, and both are correct. Uncomment to see the difference.
+#
+# [bindings.Safari]
+# swipe_left = "cmd+["
+# swipe_right = "cmd+]"
+# palm_push_down = "cmd+w"
+#
+# [bindings.Preview]
+# swipe_left = "left"
+# swipe_right = "right"
+# # "none" mutes a global binding here without deleting it everywhere, which is
+# # how a gesture is made safe in one app that needs the screen still.
+# palm_push_up = "none"
 
 [keys]
-# macOS dictation has no reliably synthesisable default shortcut, so bind a real
-# key in System Settings > Keyboard > Dictation and mirror it here.
+# Names for chords, so a gesture can be bound to the idea rather than the keys.
+# Worth it where the keys might change -- macOS dictation has no reliably
+# synthesisable default shortcut, so assign a real key in System Settings >
+# Keyboard > Dictation and mirror it here, and every binding follows.
 dictation = { key = "f5", mods = [] }
 mission_control = { key = "up", mods = ["ctrl"] }
 desktop_left = { key = "left", mods = ["ctrl"] }
 desktop_right = { key = "right", mods = ["ctrl"] }
+# App Exposé: every window of whatever is in front. Bound to nothing by default.
+app_windows = { key = "down", mods = ["ctrl"] }
 
 [api]
 # The local API other applications use to read tracking and drive the cursor.

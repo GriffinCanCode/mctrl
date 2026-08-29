@@ -1,9 +1,12 @@
 """Synthetic key input via Quartz.
 
-Used for the system-level gestures -- desktop switching, Mission Control,
-dictation -- where the right thing to send is the shortcut a user would type.
-Sending real shortcuts means these gestures work with whatever the user has
-already configured, instead of this app reimplementing window management.
+What a bound gesture actually does. Sending the shortcut a user would type means
+these gestures work with whatever that application already offers, instead of
+this app reimplementing window management, or page navigation, or undo.
+
+The key names and the chord syntax live in :mod:`keys`, which imports nothing, so
+a binding can be checked before there is anything to send it to. This half is
+only the sending.
 """
 
 from __future__ import annotations
@@ -12,57 +15,22 @@ import Quartz
 
 from ..config import KeyBinding
 from .events import create_source, post
+from .keys import KEY_CODES, MODIFIER_ALIASES, parse_chord, resolve_key
 
-# macOS virtual key codes. Only the keys worth binding to a gesture are listed.
-KEY_CODES: dict[str, int] = {
-    "left": 0x7B,
-    "right": 0x7C,
-    "down": 0x7D,
-    "up": 0x7E,
-    "space": 0x31,
-    "tab": 0x30,
-    "return": 0x24,
-    "escape": 0x35,
-    "delete": 0x33,
-    "f1": 0x7A,
-    "f2": 0x78,
-    "f3": 0x63,
-    "f4": 0x76,
-    "f5": 0x60,
-    "f6": 0x61,
-    "f7": 0x62,
-    "f8": 0x64,
-    "f9": 0x65,
-    "f10": 0x6D,
-    "f11": 0x67,
-    "f12": 0x6F,
-    "a": 0x00,
-    "c": 0x08,
-    "d": 0x02,
-    "h": 0x04,
-    "m": 0x2E,
-    "n": 0x2D,
-    "s": 0x01,
-    "t": 0x11,
-    "v": 0x09,
-    "w": 0x0D,
-    "z": 0x06,
-}
-
+# Canonical modifier name to the flag Quartz wants. Synonyms are resolved by
+# `keys.MODIFIER_ALIASES` before they arrive here, so there is one row per
+# modifier rather than one per spelling of one.
 MODIFIER_FLAGS: dict[str, int] = {
     "cmd": Quartz.kCGEventFlagMaskCommand,
-    "command": Quartz.kCGEventFlagMaskCommand,
     "ctrl": Quartz.kCGEventFlagMaskControl,
-    "control": Quartz.kCGEventFlagMaskControl,
     "alt": Quartz.kCGEventFlagMaskAlternate,
-    "option": Quartz.kCGEventFlagMaskAlternate,
     "shift": Quartz.kCGEventFlagMaskShift,
     "fn": Quartz.kCGEventFlagMaskSecondaryFn,
 }
 
 
 class Keyboard:
-    """Sends keystrokes for named actions defined in config."""
+    """Sends keystrokes, named through ``[keys]`` or spelled out as a chord."""
 
     def __init__(self, keys: dict[str, KeyBinding]) -> None:
         self._source = create_source()
@@ -73,18 +41,19 @@ class Keyboard:
 
     def tap(self, binding: KeyBinding) -> bool:
         """Press and release one key with modifiers. False if the key is unknown."""
-        code = KEY_CODES.get(binding.key.lower())
-        if code is None:
-            print(f"[keyboard] no key code for {binding.key!r}; add it to KEY_CODES")
+        key = resolve_key(binding.key)
+        if key is None:
+            print(f"[keyboard] no key code for {binding.key!r}; add it to keys.KEY_CODES")
             return False
         flags = 0
         for name in binding.mods:
-            flag = MODIFIER_FLAGS.get(name.lower())
-            if flag is None:
+            modifier = MODIFIER_ALIASES.get(name.strip().lower())
+            if modifier is None:
                 print(f"[keyboard] unknown modifier {name!r}")
                 continue
-            flags |= flag
+            flags |= MODIFIER_FLAGS[modifier]
 
+        code = KEY_CODES[key]
         for pressed in (True, False):
             event = Quartz.CGEventCreateKeyboardEvent(self._source, code, pressed)
             if event is not None and flags:
@@ -93,9 +62,15 @@ class Keyboard:
         return True
 
     def run_action(self, action: str) -> bool:
-        """Fire a named action such as ``desktop_left``, if it is bound."""
-        binding = self._keys.get(action)
+        """Fire an action, whether it names a ``[keys]`` entry or spells out a chord.
+
+        Both, rather than one or the other: the named indirection is what lets
+        ``dictation`` stay one edit away from the key a user assigned in System
+        Settings, and the chord is what lets a binding be written -- or sent over
+        the API -- without inventing a name for it first.
+        """
+        binding = self._keys.get(action) or parse_chord(action)
         if binding is None:
-            print(f"[keyboard] action {action!r} has no key binding in [keys]")
+            print(f"[keyboard] {action!r} is neither a name in [keys] nor a key chord")
             return False
         return self.tap(binding)

@@ -365,6 +365,15 @@ def _build_parser() -> argparse.ArgumentParser:
     remote.add_argument("--seconds", type=float, help="with --watch, stop after this long")
     remote.add_argument("--socket", type=Path, help="socket to connect to")
 
+    binder = subcommands.add_parser(
+        "bind", help="see or change what a gesture does, optionally in one app only"
+    )
+    binder.add_argument("gesture", nargs="?", help="e.g. swipe_left; omit to list the table")
+    binder.add_argument("action", nargs="?", help="a chord such as cmd+[, or a name from [keys]")
+    binder.add_argument("--app", help="bundle id or app name, e.g. Safari; omit for everywhere")
+    binder.add_argument("--clear", action="store_true", help="remove the binding instead")
+    binder.add_argument("--socket", type=Path, help="socket to connect to")
+
     helper = subcommands.add_parser(
         "bridge", help="build the native helper that smooths and snaps the cursor"
     )
@@ -403,6 +412,17 @@ def main(argv: list[str] | None = None) -> int:
             args.params,
             watch=args.watch,
             seconds=args.seconds,
+            socket=args.socket,
+        )
+
+    if command == "bind":
+        from .api import cli
+
+        return cli.bind(
+            args.gesture,
+            args.action,
+            app=args.app,
+            clear=args.clear,
             socket=args.socket,
         )
 

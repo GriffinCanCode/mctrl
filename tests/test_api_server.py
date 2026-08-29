@@ -34,6 +34,7 @@ from mindcontrol.api.runtime import Runtime
 from mindcontrol.api.server import ApiServer
 from mindcontrol.camera.capture import Frame
 from mindcontrol.config import ApiConfig
+from mindcontrol.control.bindings import BINDABLE, App
 from mindcontrol.control.modes import Mode
 from mindcontrol.gestures.engine import Action, GestureEvent
 from mindcontrol.gestures.fusion import FusedHand
@@ -398,6 +399,68 @@ def test_pause_and_resume_are_answered(mc, pipeline):
     assert mc.system.pause() == {"paused": True}
     assert mc.system.resume() == {"paused": False}
     assert pipeline.running
+
+
+# -------------------------------------------------------------------- the bindings
+
+
+def test_a_keystroke_is_marshalled_onto_the_frame_loop_like_a_click(mc, pipeline):
+    """Without this verb a consumer can read a gesture and not act on it.
+
+    Deferred rather than sent from the socket thread, so a key and a click issued
+    in that order arrive in it -- which is most of what driving another
+    application consists of.
+    """
+    keys = Cursor()
+    pipeline.keyboard = keys
+
+    mc.input.key("cmd+shift+p")
+    _, args, thread = keys.wait_for("run_action")
+
+    assert args == ("cmd+shift+p",)
+    assert thread == "pipeline"
+
+
+def test_a_binding_can_be_installed_for_one_application_while_it_runs(mc, pipeline):
+    """Which is the point: an application can teach it its own gestures.
+
+    Editing config.toml is the way to make that survive a restart; this is the
+    way to do it without one.
+    """
+    published = mc.bindings.set("swipe_left", "cmd+[", app="Safari")
+
+    assert published["apps"]["Safari"]["swipe_left"] == "cmd+["
+    assert pipeline.bindings.resolve("swipe_left", App(bundle="com.apple.Safari")) == "cmd+["
+    assert pipeline.bindings.resolve("swipe_left", App(bundle="com.apple.Terminal")) == (
+        "desktop_left"
+    ), "another application still gets the global binding"
+
+    mc.bindings.clear("swipe_left", app="Safari")
+    assert "Safari" not in pipeline.bindings.apps
+
+
+def test_a_binding_resolves_against_whichever_application_is_asked_about(mc, pipeline):
+    mc.bindings.set("palm_push_down", "cmd+w", app="Safari")
+
+    assert mc.bindings.resolved("Safari")["palm_push_down"] == "cmd+w"
+    assert mc.bindings.resolved("Terminal")["palm_push_down"] is None
+
+
+def test_a_gesture_that_does_not_exist_is_refused_rather_than_stored(mc):
+    """A binding is only found to be wrong when the gesture fires, which is too late."""
+    for gesture, action in (("wiggle", "cmd+a"), ("swipe_left", "hyper+q")):
+        with pytest.raises(api.ApiError) as raised:
+            mc.bindings.set(gesture, action)
+        assert raised.value.code == api.BAD_PARAMS
+
+    assert mc.bindings.resolved()["swipe_left"] == "desktop_left", "and nothing changed"
+
+
+def test_the_bindable_gestures_are_published_with_the_catalogue(mc):
+    """So a consumer can build a binding UI from describe() alone."""
+    verbs = {verb["verb"]: verb for verb in mc.system.describe()["modules"]["bindings"]}
+    choices = next(p["choices"] for p in verbs["bindings.set"]["params"] if p["name"] == "gesture")
+    assert choices == list(BINDABLE)
 
 
 # -------------------------------------------------------------------- the streams
