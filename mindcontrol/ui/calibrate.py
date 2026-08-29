@@ -18,10 +18,10 @@ import time
 import cv2
 import numpy as np
 
-from .capture import CameraWorker
-from .config import GAZE_MODEL_PATH, Config, load
-from .control.mouse import main_display_bounds
-from .tracking.gaze import GazeModel, GazeTracker
+from ..camera.capture import CameraWorker
+from ..config import GAZE_MODEL_PATH, Config, load
+from ..control.mouse import main_display_bounds
+from ..tracking.gaze import GazeModel, GazeTracker
 
 WINDOW = "mindcontrol calibration"
 # Inset from the edges: a dot in the very corner is uncomfortable to fixate and

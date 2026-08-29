@@ -25,9 +25,9 @@ import numpy as np
 from mediapipe.tasks import python as mp_tasks
 from mediapipe.tasks.python import vision
 
-from .. import models
-from ..capture import Frame
+from ..camera.capture import Frame
 from ..config import TrackingConfig
+from . import models
 
 # Indices into MediaPipe's 478-point face mesh (the last ten are the irises).
 RIGHT_EYE_OUTER, RIGHT_EYE_INNER = 33, 133

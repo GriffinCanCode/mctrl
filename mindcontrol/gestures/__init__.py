@@ -1,1 +1,1 @@
-"""Gesture recognition: hand shapes and motion turned into intents."""
+"""Gesture recognition: landmark geometry, multi-camera fusion, shapes and motion made intents."""

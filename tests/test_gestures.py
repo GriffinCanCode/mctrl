@@ -12,8 +12,8 @@ from dataclasses import replace
 import pytest
 from conftest import synthetic
 
-from mindcontrol.geometry import Pose
 from mindcontrol.gestures.engine import Action, GestureEngine, State
+from mindcontrol.gestures.geometry import Pose
 
 FRAME = 1 / 30.0
 

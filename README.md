@@ -544,11 +544,11 @@ Turn the whole thing off with `enabled = false` under `[api]` in `config.toml`.
 
 ```
 Python -- what a hand meant
-  cameras (one thread each)
+  cameras (one thread each)           camera/capture.py
   -> hand landmarks per camera        tracking/hands.py
   -> gaze features on the primary     tracking/gaze.py
-  -> merge cameras into one view      fusion.py
-  -> classify shape, run the machine  geometry.py, gestures/engine.py
+  -> merge cameras into one view      gestures/fusion.py
+  -> classify shape, run the machine  gestures/geometry.py, gestures/engine.py
   -> send intents over a socket       control/bridge.py
 
 Swift -- what the cursor does about it        native/Sources/BridgeCore/

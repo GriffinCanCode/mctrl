@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from conftest import build_hand, features
 
-from mindcontrol.geometry import Pose
+from mindcontrol.gestures.geometry import Pose
 
 ALL_FINGERS = ("index", "middle", "ring", "pinky")
 
@@ -82,7 +82,7 @@ def test_palm_facing_survives_a_mirrored_feed(cfg):
     cancelling, `engage` and every swipe silently stop working -- but only when
     `cameras.mirror` is on, which is the default, so this is worth pinning down.
     """
-    from mindcontrol.geometry import Pose, measure
+    from mindcontrol.gestures.geometry import Pose, measure
 
     upright = build_hand()
     mirrored = upright.copy()

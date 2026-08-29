@@ -26,7 +26,7 @@ from enum import Enum
 
 from ..config import GestureConfig, PointerConfig, TrackingConfig
 from ..filters import OneEuroFilter2D
-from ..geometry import HandFeatures, Pose
+from .geometry import HandFeatures, Pose
 
 
 class Action(Enum):

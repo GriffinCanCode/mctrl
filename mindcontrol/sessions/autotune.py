@@ -46,10 +46,10 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import GestureConfig, TrackingConfig
-from .fusion import FusedHand, fuse_session
-from .geometry import PALM_POINTS, palm_span
-from .session import RecordedFrame, Session
+from ..config import GestureConfig, TrackingConfig
+from ..gestures.fusion import FusedHand, fuse_session
+from ..gestures.geometry import PALM_POINTS, palm_span
+from .store import RecordedFrame, Session
 
 PALM_POINTS_IDX = list(PALM_POINTS)
 
@@ -137,7 +137,7 @@ def _per_frame(fused: Fused, labels: tuple[str, ...], metric, low: bool) -> list
 
 def _finger_ratio(hand, finger: int) -> float:
     """Tip-to-wrist over knuckle-to-wrist, what `finger_extended` compares against."""
-    from .geometry import FINGERS, WRIST
+    from ..gestures.geometry import FINGERS, WRIST
 
     tip, pip = FINGERS[finger]
     points = hand.world
@@ -171,7 +171,7 @@ def _finger_ratios(fused: Fused, labels: tuple[str, ...], low: bool) -> list[flo
 
 
 def _thumb_distance(hand) -> float:
-    from .geometry import PINKY_MCP, THUMB_TIP
+    from ..gestures.geometry import PINKY_MCP, THUMB_TIP
 
     points = hand.world
     return float(np.linalg.norm(points[THUMB_TIP] - points[PINKY_MCP])) / palm_span(points)

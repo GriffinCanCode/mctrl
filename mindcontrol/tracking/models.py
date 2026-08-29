@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from .config import CACHE_DIR
+from ..config import CACHE_DIR
 
 MODELS_DIR = CACHE_DIR / "models"
 

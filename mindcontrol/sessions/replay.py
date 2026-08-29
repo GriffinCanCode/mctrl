@@ -24,10 +24,10 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field
 
-from .config import Config
-from .fusion import HandFusion, Observation, fuse_session
-from .gestures.engine import Action, GestureEngine, GestureEvent
-from .session import Session
+from ..config import Config
+from ..gestures.engine import Action, GestureEngine, GestureEvent
+from ..gestures.fusion import HandFusion, Observation, fuse_session
+from .store import Session
 
 
 @dataclass

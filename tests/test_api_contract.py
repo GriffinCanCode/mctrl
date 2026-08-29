@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 from mindcontrol.api import contract as api
-from mindcontrol.fusion import FusedHand
+from mindcontrol.gestures.fusion import FusedHand
 from mindcontrol.pipeline import PipelineStatus
 
 # ------------------------------------------------------------------- the catalogue

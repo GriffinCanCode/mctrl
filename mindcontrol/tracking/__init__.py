@@ -1,1 +1,1 @@
-"""Perception wrappers around the MediaPipe task models."""
+"""Perception: the MediaPipe task models, and the wrappers that run them."""

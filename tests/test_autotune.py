@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mindcontrol.autotune import Suggestion, _split_threshold, patch_config
+from mindcontrol.sessions.autotune import Suggestion, _split_threshold, patch_config
 
 
 def test_threshold_lands_in_the_gap():
@@ -94,7 +94,7 @@ def test_writing_half_a_hysteresis_pair_is_refused(cfg):
     single steady hand reads as closed *and* open and clicks every frame; six
     clicks in one second, measured.
     """
-    from mindcontrol.autotune import Suggestion, _broken_pairs
+    from mindcontrol.sessions.autotune import Suggestion, _broken_pairs
 
     lower_only = [Suggestion("gestures", "pinch_close", cfg.gestures.pinch_close, 0.533, "")]
     assert _broken_pairs(cfg.gestures, lower_only), "an inverted band was accepted"
@@ -107,7 +107,7 @@ def test_writing_half_a_hysteresis_pair_is_refused(cfg):
 
 
 def test_an_unrelated_threshold_is_not_blocked_by_the_pair_check(cfg):
-    from mindcontrol.autotune import Suggestion, _broken_pairs
+    from mindcontrol.sessions.autotune import Suggestion, _broken_pairs
 
     unrelated = [Suggestion("gestures", "thumb_extended", cfg.gestures.thumb_extended, 1.043, "")]
     assert not _broken_pairs(cfg.gestures, unrelated)

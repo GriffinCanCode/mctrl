@@ -45,9 +45,9 @@ from .contract import (
 from .hub import DEFAULT_DEPTH, EventHub, Subscriber
 
 if TYPE_CHECKING:
-    from ..capture import Frame
-    from ..fusion import FusedHand
+    from ..camera.capture import Frame
     from ..gestures.engine import GestureEvent
+    from ..gestures.fusion import FusedHand
     from ..pipeline import Pipeline, PipelineStatus
 
 # How long a verb that has to happen on the frame loop will wait for it. A frame
@@ -256,7 +256,7 @@ class Runtime:
             self._quietly(lambda: self.pipeline.apply_mode(Mode.OFF))
             self._quietly(self.pipeline.pause)
             result = subprocess.run(
-                [sys.executable, "-m", "mindcontrol.calibrate"],
+                [sys.executable, "-m", "mindcontrol.ui.calibrate"],
                 cwd=Path.cwd(),
                 check=False,
             )

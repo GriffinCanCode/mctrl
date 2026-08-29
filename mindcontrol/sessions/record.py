@@ -27,12 +27,12 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .capture import CameraBank, Frame
-from .config import Config, load
-from .geometry import SKELETON, HandFeatures
-from .logs import muffled
-from .session import SESSIONS_DIR, RecordedFrame, RecordedHand, RecordedView, SessionWriter
-from .tracking.hands import HandTracker
+from ..camera.capture import CameraBank, Frame
+from ..config import Config, load
+from ..gestures.geometry import SKELETON, HandFeatures
+from ..logs import muffled
+from ..tracking.hands import HandTracker
+from .store import SESSIONS_DIR, RecordedFrame, RecordedHand, RecordedView, SessionWriter
 
 # How long to wait for every camera to produce its first frame before starting.
 # Generous because a phone joined over Continuity has been measured taking most of

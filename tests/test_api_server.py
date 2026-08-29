@@ -32,11 +32,11 @@ from mindcontrol.api.client import Client
 from mindcontrol.api.facade import Local
 from mindcontrol.api.runtime import Runtime
 from mindcontrol.api.server import ApiServer
-from mindcontrol.capture import Frame
+from mindcontrol.camera.capture import Frame
 from mindcontrol.config import ApiConfig
 from mindcontrol.control.modes import Mode
-from mindcontrol.fusion import FusedHand
 from mindcontrol.gestures.engine import Action, GestureEvent
+from mindcontrol.gestures.fusion import FusedHand
 from mindcontrol.pipeline import Pipeline
 
 

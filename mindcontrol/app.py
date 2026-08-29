@@ -21,8 +21,8 @@ from .api.runtime import Runtime
 from .api.server import ApiServer
 from .config import Config, load
 from .control.modes import Mode
-from .debug_view import DebugView, render
 from .pipeline import Pipeline, PipelineStatus
+from .ui.debug_view import DebugView, render
 
 # Status-bar glyphs. Text rather than an icon file keeps the app one directory.
 GLYPHS = {Mode.ACTIVE: "\u25c9", Mode.SUSPENDED: "\u25d0", Mode.OFF: "\u25cb"}
@@ -386,12 +386,12 @@ def main(argv: list[str] | None = None) -> int:
     command = args.command or "run"
 
     if command == "cameras":
-        from . import devices
+        from .camera import devices
 
         return devices.run(args.max_index, show=args.preview)
 
     if command == "calibrate":
-        from . import calibrate
+        from .ui import calibrate
 
         return calibrate.run(cfg)
 
@@ -412,32 +412,32 @@ def main(argv: list[str] | None = None) -> int:
         return bridge.run(rebuild=args.rebuild, debug=args.dev)
 
     if command == "record":
-        from . import record
+        from .sessions import record
 
         focus = tuple(f.strip() for f in args.focus.split(",") if f.strip()) if args.focus else None
         return record.run(cfg, out=args.out, note=args.note, focus=focus)
 
     if command in {"autotune", "replay"}:
-        from . import session
+        from .sessions import store
 
         try:
-            chosen = session.resolve(args.session)
+            chosen = store.resolve(args.session)
         except FileNotFoundError as missing:
             # An expected situation, not a crash: nobody has recorded yet.
             print(f"[{command}] {missing}")
             return 2
 
         if command == "autotune":
-            from . import autotune
+            from .sessions import autotune
 
             only = {k.strip() for k in args.only.split(",") if k.strip()} if args.only else None
             return autotune.run(
                 chosen, cfg.gestures, cfg.source_path, args.apply, only, cfg.tracking
             )
 
-        from . import replay
+        from .sessions import replay
 
-        return replay.run(session.Session.load(chosen), cfg)
+        return replay.run(store.Session.load(chosen), cfg)
 
     if args.debug:
         if not check_accessibility():

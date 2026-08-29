@@ -19,9 +19,9 @@ import queue
 import cv2
 import numpy as np
 
-from .capture import Frame
-from .geometry import SKELETON, Pose
-from .pipeline import PipelineStatus
+from ..camera.capture import Frame
+from ..gestures.geometry import SKELETON, Pose
+from ..pipeline import PipelineStatus
 
 VIEW_WIDTH = 720
 POSE_COLOURS = {

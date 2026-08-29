@@ -26,8 +26,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - annotations only, never imported at runtime
-    from ..fusion import FusedHand
     from ..gestures.engine import GestureEvent
+    from ..gestures.fusion import FusedHand
     from ..pipeline import PipelineStatus
 
 PROTOCOL_VERSION = 1

@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from .config import CameraConfig
+from ..config import CameraConfig
 
 
 @dataclass(frozen=True)

@@ -14,10 +14,11 @@ import numpy as np
 from mediapipe.tasks import python as mp_tasks
 from mediapipe.tasks.python import vision
 
-from .. import geometry, models
-from ..capture import Frame
+from ..camera.capture import Frame
 from ..config import GestureConfig, TrackingConfig
-from ..geometry import HandFeatures
+from ..gestures import geometry
+from ..gestures.geometry import HandFeatures
+from . import models
 
 
 def _to_array(landmarks: list) -> np.ndarray:

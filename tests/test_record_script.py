@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from mindcontrol.autotune import analyse
-from mindcontrol.record import FOCUS, SCRIPT, select
+from mindcontrol.sessions.autotune import analyse
+from mindcontrol.sessions.record import FOCUS, SCRIPT, select
 
 
 def test_no_focus_records_everything():

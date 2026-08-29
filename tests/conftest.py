@@ -15,8 +15,8 @@ import numpy as np
 import pytest
 
 from mindcontrol.config import Config, load
-from mindcontrol.geometry import HandFeatures, Pose, measure
-from mindcontrol.session import Session
+from mindcontrol.gestures.geometry import HandFeatures, Pose, measure
+from mindcontrol.sessions.store import Session
 
 # Landmark chains per finger: (mcp, pip, dip, tip).
 CHAIN = {
@@ -58,7 +58,7 @@ def write_session(
     """
     import numpy as np
 
-    from mindcontrol.session import RecordedFrame, RecordedHand, RecordedView, SessionWriter
+    from mindcontrol.sessions.store import RecordedFrame, RecordedHand, RecordedView, SessionWriter
 
     rng = np.random.default_rng(7)
     all_fingers = ("index", "middle", "ring", "pinky")

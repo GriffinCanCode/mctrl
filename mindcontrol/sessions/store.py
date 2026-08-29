@@ -36,8 +36,8 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import STATE_DIR
-from .geometry import HandFeatures, measure
+from ..config import STATE_DIR
+from ..gestures.geometry import HandFeatures, measure
 
 SESSIONS_DIR = STATE_DIR / "sessions"
 FORMAT_VERSION = 2

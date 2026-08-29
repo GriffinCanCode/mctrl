@@ -14,10 +14,10 @@ import numpy as np
 import pytest
 from conftest import build_hand
 
-from mindcontrol import replay as replay_module
-from mindcontrol import session as session_module
 from mindcontrol.gestures.engine import Action
-from mindcontrol.session import (
+from mindcontrol.sessions import replay as replay_module
+from mindcontrol.sessions import store as session_module
+from mindcontrol.sessions.store import (
     RecordedFrame,
     RecordedHand,
     RecordedView,
@@ -133,7 +133,7 @@ def newest_with(*labels: str) -> Session:
 @pytest.fixture(scope="module")
 def recorded() -> Session:
     """The newest recording that covers the whole script."""
-    from mindcontrol.record import SCRIPT
+    from mindcontrol.sessions.record import SCRIPT
 
     return newest_with(*(prompt.label for prompt in SCRIPT))
 
@@ -153,7 +153,7 @@ def _require_clean(session: Session, *labels: str) -> None:
 
 
 def test_recording_covers_every_prompt(recorded):
-    from mindcontrol.record import SCRIPT
+    from mindcontrol.sessions.record import SCRIPT
 
     missing = {prompt.label for prompt in SCRIPT} - set(recorded.labels())
     assert not missing, f"recording is missing prompts: {sorted(missing)}"

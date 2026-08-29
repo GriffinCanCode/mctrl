@@ -12,8 +12,8 @@ from dataclasses import replace
 
 import pytest
 
-from mindcontrol import replay as replay_module
 from mindcontrol.gestures.engine import Action
+from mindcontrol.sessions import replay as replay_module
 
 
 def test_every_prompt_classifies_as_intended(synthetic_session, cfg):
@@ -72,7 +72,7 @@ def test_replay_is_deterministic(synthetic_session, cfg):
 
 def test_autotune_separates_every_threshold(synthetic_session, cfg):
     """On clean data the fitter should decline nothing and stay in range."""
-    from mindcontrol.autotune import analyse
+    from mindcontrol.sessions.autotune import analyse
 
     suggestions = analyse(synthetic_session, cfg.gestures)
     declined = [s.key for s in suggestions if s.proposed is None]
@@ -114,7 +114,7 @@ def _two_camera_track(cfg, margin: float, hand_off: int | None = None):
     while it moves a steady `STRIDE` each frame. Returns the anchors fusion chose
     to emit, and how many of those it asked the pointer to rebase across.
     """
-    from mindcontrol.fusion import HandFusion, Observation
+    from mindcontrol.gestures.fusion import HandFusion, Observation
 
     from conftest import synthetic
 
@@ -177,7 +177,7 @@ def test_a_camera_seen_for_the_first_time_still_rebases(cfg):
     A leader absent in the previous frame has no movement of its own to measure,
     so its parallax is genuinely unknown and the baseline has to go.
     """
-    from mindcontrol.fusion import HandFusion, Observation
+    from mindcontrol.gestures.fusion import HandFusion, Observation
 
     from conftest import synthetic
 
@@ -207,7 +207,7 @@ def test_a_second_camera_does_not_double_count_an_instant(synthetic_session, fus
     camera sharpens the measurement without inflating the apparent evidence --
     which would otherwise make a shaky fit look well supported.
     """
-    from mindcontrol.autotune import analyse
+    from mindcontrol.sessions.autotune import analyse
 
     def samples(session):
         return {s.key: s.samples for s in analyse(session, cfg.gestures) if s.samples}
@@ -250,7 +250,7 @@ def test_poses_survive_losing_a_camera(flaky_session, cfg):
 
 def test_thresholds_still_fit_across_a_dropout(flaky_session, fused_session, cfg):
     """Fitting must not skew because later frames had fewer viewpoints."""
-    from mindcontrol.autotune import analyse
+    from mindcontrol.sessions.autotune import analyse
 
     def fitted(session):
         return {s.key: s.proposed for s in analyse(session, cfg.gestures) if s.proposed}
@@ -272,7 +272,7 @@ def test_extra_cameras_do_not_move_the_thresholds(synthetic_session, fused_sessi
     three-camera recording it put `pinch_close` below every pinch it was meant to
     catch, and claimed 0.277 of hold drift where the hand had moved 0.072.
     """
-    from mindcontrol.autotune import analyse
+    from mindcontrol.sessions.autotune import analyse
 
     def fitted(session):
         return {
@@ -297,7 +297,7 @@ def test_drift_is_not_measured_across_a_viewpoint_change(flaky_session, syntheti
     drift and inflates `hold_max_travel` -- which then accepts a hand that is
     plainly being waved about as one held still.
     """
-    from mindcontrol.autotune import analyse
+    from mindcontrol.sessions.autotune import analyse
 
     def drift(session):
         for s in analyse(session, cfg.gestures, cfg.tracking):
@@ -320,7 +320,7 @@ def test_autotuned_thresholds_still_classify(synthetic_session, cfg):
     """
     from dataclasses import replace
 
-    from mindcontrol.autotune import analyse
+    from mindcontrol.sessions.autotune import analyse
 
     fitted = {s.key: s.proposed for s in analyse(synthetic_session, cfg.gestures) if s.proposed}
     tuned = replace(cfg, gestures=replace(cfg.gestures, **fitted))

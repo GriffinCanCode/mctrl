@@ -20,15 +20,15 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from .capture import CameraBank, Frame
+from .camera.capture import CameraBank, Frame
 from .config import GAZE_MODEL_PATH, Config
 from .control.bridge import Bridge
 from .control.keyboard import Keyboard
 from .control.modes import Mode, ModeManager
 from .control.mouse import Mouse
 from .filters import OneEuroFilter2D
-from .fusion import FusedHand, HandFusion, Observation, fuse_gaze
 from .gestures.engine import Action, GestureEngine, GestureEvent
+from .gestures.fusion import FusedHand, HandFusion, Observation, fuse_gaze
 from .logs import muffled
 from .tracking.gaze import FixationDetector, GazeModel, GazeObservation, GazeTracker
 from .tracking.hands import HandTracker

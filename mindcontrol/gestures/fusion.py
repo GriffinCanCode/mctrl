@@ -22,12 +22,12 @@ from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
-from .config import GestureConfig, TrackingConfig
+from ..config import GestureConfig, TrackingConfig
+from ..tracking.gaze import GazeObservation
 from .geometry import HandFeatures, classify
-from .tracking.gaze import GazeObservation
 
 if TYPE_CHECKING:
-    from .session import RecordedFrame, Session
+    from ..sessions.store import RecordedFrame, Session
 
 
 
